@@ -1,0 +1,72 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# StorageClass — SMB CSI driver
+# Install the driver first: deploy.sh handles this automatically.
+#   helm repo add csi-driver-smb https://raw.githubusercontent.com/kubernetes-csi/csi-driver-smb/master/charts
+#   helm install csi-driver-smb csi-driver-smb/csi-driver-smb --namespace kube-system
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: smb-media
+  labels:
+    {{- include "akpn.labels" . | nindent 4 }}
+provisioner: smb.csi.k8s.io
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+mountOptions:
+  {{- range .Values.nas.mountOptions }}
+  - {{ . }}
+  {{- end }}
+parameters:
+  source: "//{{ .Values.nas.host }}/{{ .Values.nas.mediaShare }}"
+  csi.storage.k8s.io/provisioner-secret-name: smb-credentials
+  csi.storage.k8s.io/provisioner-secret-namespace: {{ .Release.Namespace }}
+  csi.storage.k8s.io/node-stage-secret-name: smb-credentials
+  csi.storage.k8s.io/node-stage-secret-namespace: {{ .Release.Namespace }}
+
+---
+# Persistent Volume — static binding to the TrueNAS SMB share
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: media-pv
+  labels:
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  capacity:
+    storage: {{ .Values.nas.mediaShareSize }}
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: smb-media
+  mountOptions:
+    {{- range .Values.nas.mountOptions }}
+    - {{ . }}
+    {{- end }}
+  csi:
+    driver: smb.csi.k8s.io
+    readOnly: false
+    volumeHandle: media-pv
+    volumeAttributes:
+      source: "//{{ .Values.nas.host }}/{{ .Values.nas.mediaShare }}"
+    nodeStageSecretRef:
+      name: smb-credentials
+      namespace: {{ .Release.Namespace }}
+
+---
+# Persistent Volume Claim — shared read-write-many media mount
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: media-pvc
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: smb-media
+  volumeName: media-pv
+  resources:
+    requests:
+      storage: {{ .Values.nas.mediaShareSize }}

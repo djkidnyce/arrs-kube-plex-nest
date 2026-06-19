@@ -1,0 +1,82 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                    Arrs Kube Plex Nest  ✓  deployed to {{ .Release.Namespace }}                    ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SERVICES  (get IPs: kubectl get svc -n {{ .Release.Namespace }})
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Plex (autoscaled, {{ .Values.plex.autoscaling.minReplicas }}–{{ .Values.plex.autoscaling.maxReplicas }} replicas):
+{{- range $i := until (.Values.plex.autoscaling.maxReplicas | int) }}
+    plex-{{ $i }}  →  <LB-IP>:{{ add $.Values.plex.basePort $i }}
+{{- end }}
+
+  Overseerr (requests):    <LB-IP>:{{ .Values.seerr.port }}
+
+  Internal ClusterIP only (port-forward to access):
+    SABnzbd              kubectl port-forward svc/sabnzbd 8080:{{ .Values.sabnzbd.port }} -n {{ .Release.Namespace }}
+    SABnzbd filebrowser  kubectl port-forward svc/sabnzbd-filebrowser 8888:8888 -n {{ .Release.Namespace }}
+    SABnzbd VPN API      kubectl port-forward svc/sabnzbd-vpn 8000:8000 -n {{ .Release.Namespace }}
+    Sonarr               kubectl port-forward svc/sonarr 8989:{{ .Values.sonarr.port }} -n {{ .Release.Namespace }}
+    Radarr               kubectl port-forward svc/radarr 7878:{{ .Values.radarr.port }} -n {{ .Release.Namespace }}
+    Lidarr               kubectl port-forward svc/lidarr 8686:{{ .Values.lidarr.port }} -n {{ .Release.Namespace }}
+    Tautulli             kubectl port-forward svc/tautulli 8181:{{ .Values.tautulli.port }} -n {{ .Release.Namespace }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  FIRST-TIME SETUP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Upload .ovpn file(s) via filebrowser (default admin/admin — change password!):
+     kubectl port-forward svc/sabnzbd-filebrowser 8888:8888 -n {{ .Release.Namespace }}
+     open http://localhost:8888
+
+2. Restart SABnzbd pod to trigger init-container re-patch after upload:
+     kubectl rollout restart deployment/sabnzbd -n {{ .Release.Namespace }}
+
+3. Claim your Plex server (visit plex-0's IP on port {{ .Values.plex.basePort }}).
+   The PLEX_CLAIM token is valid for 4 minutes — get a fresh one at:
+     https://plex.tv/claim
+
+4. Configure SABnzbd connection in Sonarr/Radarr:
+     Host:     sabnzbd.{{ .Release.Namespace }}.svc.cluster.local
+     Port:     {{ .Values.sabnzbd.port }}
+     API Key:  (from SABnzbd Settings → General)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  VPN ROTATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Current interval: {{ .Values.vpn.rotationIntervalSeconds }}s
+  Change on-the-fly (no pod restart):
+    kubectl edit configmap vpn-config -n {{ .Release.Namespace }}
+    # set rotation-interval-seconds to new value, or "0" to disable
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CLAMAV SCANNING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- if .Values.clamav.enabled }}
+  Daily  quick scan:   {{ .Values.clamav.daily.schedule }} {{ .Values.clamav.daily.timeZone }}
+  Monthly full scan:   {{ .Values.clamav.monthly.schedule }} {{ .Values.clamav.monthly.timeZone }}
+  Notification type:   {{ .Values.clamav.notificationType }}
+
+  Run a scan immediately:
+    kubectl create job --from=cronjob/clamav-daily clamav-manual-$(date +%s) -n {{ .Release.Namespace }}
+
+  View scan logs:
+    kubectl logs -l scan-type=daily -n {{ .Release.Namespace }} --tail=50
+{{- else }}
+  ClamAV is disabled. Enable with:
+    helm upgrade akpn . --set clamav.enabled=true -n {{ .Release.Namespace }}
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PLEX AUTOSCALING  ({{ .Values.plex.autoscaling.minReplicas }}–{{ .Values.plex.autoscaling.maxReplicas }} replicas, CPU target {{ .Values.plex.autoscaling.targetCPUUtilizationPercentage }}%)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  kubectl get hpa plex-hpa -n {{ .Release.Namespace }}
+  kubectl describe hpa plex-hpa -n {{ .Release.Namespace }}
+
+  Requires metrics-server:
+    kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

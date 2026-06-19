@@ -1,0 +1,155 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Services — all non-Plex services
+# (Plex services are in plex-services.yaml)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# SABnzbd — download client API
+apiVersion: v1
+kind: Service
+metadata:
+  name: sabnzbd
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: sabnzbd
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app: sabnzbd
+  ports:
+    - name: http
+      port: {{ .Values.sabnzbd.port }}
+      targetPort: {{ .Values.sabnzbd.port }}
+
+---
+# SABnzbd — filebrowser UI for .ovpn file management (internal-only)
+apiVersion: v1
+kind: Service
+metadata:
+  name: sabnzbd-filebrowser
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: sabnzbd
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app: sabnzbd
+  ports:
+    - name: filebrowser
+      port: 8888
+      targetPort: 8888
+
+---
+# SABnzbd — gluetun control API (for VPN status / rotation)
+apiVersion: v1
+kind: Service
+metadata:
+  name: sabnzbd-vpn
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: sabnzbd
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app: sabnzbd
+  ports:
+    - name: vpn-api
+      port: 8000
+      targetPort: 8000
+
+---
+# Sonarr
+apiVersion: v1
+kind: Service
+metadata:
+  name: sonarr
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: sonarr
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app: sonarr
+  ports:
+    - name: http
+      port: {{ .Values.sonarr.port }}
+      targetPort: {{ .Values.sonarr.port }}
+
+---
+# Radarr
+apiVersion: v1
+kind: Service
+metadata:
+  name: radarr
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: radarr
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app: radarr
+  ports:
+    - name: http
+      port: {{ .Values.radarr.port }}
+      targetPort: {{ .Values.radarr.port }}
+
+---
+# Lidarr
+apiVersion: v1
+kind: Service
+metadata:
+  name: lidarr
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: lidarr
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app: lidarr
+  ports:
+    - name: http
+      port: {{ .Values.lidarr.port }}
+      targetPort: {{ .Values.lidarr.port }}
+
+---
+# Overseerr (external-facing — see NetworkPolicy)
+apiVersion: v1
+kind: Service
+metadata:
+  name: seerr
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: seerr
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  type: LoadBalancer
+  selector:
+    app: seerr
+  ports:
+    - name: http
+      port: {{ .Values.seerr.port }}
+      targetPort: {{ .Values.seerr.port }}
+
+---
+# Tautulli
+apiVersion: v1
+kind: Service
+metadata:
+  name: tautulli
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: tautulli
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app: tautulli
+  ports:
+    - name: http
+      port: {{ .Values.tautulli.port }}
+      targetPort: {{ .Values.tautulli.port }}

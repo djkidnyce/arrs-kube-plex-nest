@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arrs Kube Plex Nest — Kubernetes Setup Guide</title>
+<style>
+:root {
+  --bg:       #0d1117; --surface: #161b22; --surface2: #1e2736; --surface3: #21283a;
+  --border:   #30363d; --text: #e6edf3; --muted: #8b949e;
+  --blue:     #58a6ff; --green: #3fb950; --yellow: #d29922; --red: #f85149;
+  --purple:   #a5a0f5; --orange: #e3913a; --teal: #39c5cf; --pink: #e06c9f;
+  --win:      #0078d4; --linux: #f7931a; --radius: 10px;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;font-size:15px;line-height:1.65;padding:0 0 80px;}
+a{color:var(--blue);text-decoration:none;}a:hover{text-decoration:underline;}
+
+/* ── Hero ── */
+.hero{background:linear-gradient(160deg,#0a0f1a 0%,#111827 50%,#0a0f1a 100%);border-bottom:1px solid var(--border);padding:56px 24px 48px;text-align:center;position:relative;overflow:hidden;}
+.hero::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(88,166,255,.07) 0%,transparent 70%);pointer-events:none;}
+.hero h1{font-size:34px;font-weight:800;letter-spacing:-1px;background:linear-gradient(135deg,#58a6ff,#a5a0f5);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:10px;}
+.hero p{color:var(--muted);font-size:16px;max-width:600px;margin:0 auto 24px;}
+.badge-row{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;}
+.badge{display:inline-flex;align-items:center;gap:5px;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;font-family:monospace;border:1px solid;}
+.b-blue  {background:rgba(88,166,255,.1);color:var(--blue);  border-color:rgba(88,166,255,.3);}
+.b-green {background:rgba(63,185,80,.1); color:var(--green); border-color:rgba(63,185,80,.3);}
+.b-orange{background:rgba(227,145,58,.1);color:var(--orange);border-color:rgba(227,145,58,.3);}
+.b-purple{background:rgba(165,160,245,.1);color:var(--purple);border-color:rgba(165,160,245,.3);}
+.b-win   {background:rgba(0,120,212,.1); color:#4da6ff;     border-color:rgba(0,120,212,.3);}
+.b-linux {background:rgba(247,147,26,.1);color:var(--orange);border-color:rgba(247,147,26,.3);}
+
+/* ── Layout ── */
+.page{max-width:1000px;margin:0 auto;padding:40px 24px 0;}
+h2{font-size:20px;font-weight:700;margin-bottom:18px;display:flex;align-items:center;gap:10px;}
+h2 .num{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--blue),var(--purple));color:#000;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;flex-shrink:0;}
+h3{font-size:14px;font-weight:600;color:var(--blue);margin-bottom:8px;}
+.section{margin-bottom:44px;}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px 22px;margin-bottom:14px;}
+
+/* ── Platform tabs ── */
+.tab-row{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:0;}
+.tab{padding:10px 22px;cursor:pointer;font-size:13px;font-weight:600;border-bottom:2px solid transparent;color:var(--muted);user-select:none;transition:all .15s;}
+.tab:hover{color:var(--text);}
+.tab.active-win  {color:#4da6ff;border-color:#4da6ff;}
+.tab.active-linux{color:var(--orange);border-color:var(--orange);}
+.tab-content{display:none;padding:20px 0 0;}
+.tab-content.active{display:block;}
+
+/* ── Code ── */
+.code{background:#010409;border:1px solid var(--border);border-radius:8px;padding:14px 18px;font-family:"Cascadia Code","Consolas","Fira Code",monospace;font-size:13px;line-height:1.7;overflow-x:auto;margin:8px 0 14px;position:relative;}
+.code pre{white-space:pre-wrap;word-break:break-all;}
+.c{color:#6e7681;}.cmd{color:var(--blue);}.str{color:var(--green);}.flag{color:var(--yellow);}.path{color:var(--orange);}.new{color:var(--purple);}
+
+/* ── Alerts ── */
+.alert{border-radius:8px;padding:12px 16px;margin:10px 0;font-size:13.5px;border-left:3px solid;display:flex;gap:10px;}
+.alert-blue  {background:rgba(88,166,255,.07);border-color:var(--blue);color:#a8cff7;}
+.alert-yellow{background:rgba(210,153,34,.09);border-color:var(--yellow);color:#e0c57a;}
+.alert-green {background:rgba(63,185,80,.07); border-color:var(--green);color:#9fddb0;}
+
+/* ── Flow diagram ── */
+.flow{display:flex;align-items:center;gap:0;flex-wrap:wrap;margin:20px 0;}
+.flow-step{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 18px;text-align:center;min-width:130px;flex:1;}
+.flow-step .fn{font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.4px;}
+.flow-step .ft{font-size:13px;font-weight:700;color:var(--text);}
+.flow-step .fs{font-size:11px;color:var(--muted);margin-top:3px;}
+.flow-arrow{padding:0 6px;color:var(--muted);font-size:18px;flex-shrink:0;}
+
+/* ── Two-column ── */
+.two{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+@media(max-width:640px){.two{grid-template-columns:1fr;}.flow{flex-direction:column;}.flow-arrow{transform:rotate(90deg);}  }
+
+/* ── Tiles ── */
+.tile{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;}
+.tile .tl{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:3px;}
+.tile .tv{font-family:monospace;font-size:14px;font-weight:600;color:var(--text);}
+.tile .ts{font-size:11px;color:var(--muted);margin-top:2px;}
+.tile-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin:12px 0;}
+
+/* ── Table ── */
+table{width:100%;border-collapse:collapse;font-size:13px;}
+th{text-align:left;padding:7px 12px;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--border);}
+td{padding:9px 12px;border-bottom:1px solid rgba(48,54,61,.5);}
+tr:last-child td{border-bottom:none;}
+.mn{font-family:monospace;color:var(--blue);}
+.mp{font-family:monospace;color:var(--green);}
+.ext{color:var(--orange);}
+.int{color:var(--muted);}
+
+/* ── Checklist ── */
+.cl{list-style:none;}
+.cl li{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px solid rgba(48,54,61,.4);font-size:14px;}
+.cl li:last-child{border-bottom:none;}
+.cl .ch{color:var(--green);font-size:16px;flex-shrink:0;margin-top:1px;}
+.cl .ct{flex:1;}
+.cl .cs{font-size:11.5px;color:var(--muted);margin-top:2px;font-family:monospace;}
+
+/* ── Version tag ── */
+.vtag{display:inline-flex;align-items:center;gap:4px;background:rgba(63,185,80,.1);color:var(--green);border:1px solid rgba(63,185,80,.25);border-radius:5px;font-family:monospace;font-size:12px;padding:1px 7px;vertical-align:middle;}
+.utag{background:rgba(248,81,73,.1);color:var(--red);border-color:rgba(248,81,73,.25);}
+.stag{background:rgba(88,166,255,.1);color:var(--blue);border-color:rgba(88,166,255,.25);}
+
+/* ── Section divider ── */
+.divider{border:none;border-top:1px solid var(--border);margin:40px 0;}
+
+/* ── Footer ── */
+.footer{text-align:center;color:var(--muted);font-size:12px;padding-top:20px;border-top:1px solid var(--border);}
+</style>
+</head>
+<body>
+
+<!-- ── Hero ───────────────────────────────────────────────────────────────── -->
+<div class="hero">
+  <h1>🎬 Arrs Kube Plex Nest</h1>
+  <p>Self-hosted Kubernetes media server &nbsp;·&nbsp; Plex autoscaling, SABnzbd+VPN, *arrs, ClamAV &nbsp;·&nbsp; TrueNAS SMB</p>
+  <div class="badge-row">
+    <span class="badge b-blue">Helm v4.x</span>
+    <span class="badge b-green">kubectl latest stable</span>
+    <span class="badge b-win">Windows Server</span>
+    <span class="badge b-linux">Linux</span>
+    <span class="badge b-purple">k3s / kubeadm / RKE2</span>
+    <span class="badge b-orange">TrueNAS SMB 3.1.1</span>
+  </div>
+</div>
+
+<div class="page">
+
+<!-- ── Deployment Flow ───────────────────────────────────────────────────── -->
+<div class="section" style="margin-top:36px;">
+  <h2><span class="num">⚡</span>Deployment Overview</h2>
+  <div class="flow">
+    <div class="flow-step">
+      <div class="fn">Step 1</div>
+      <div class="ft">Get the Repo</div>
+      <div class="fs">git clone or download ZIP</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">
+      <div class="fn">Step 2</div>
+      <div class="ft">Install Tools</div>
+      <div class="fs">kubectl + helm (auto version-check)</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">
+      <div class="fn">Step 3</div>
+      <div class="ft">kubeconfig</div>
+      <div class="fs">Point to your cluster</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">
+      <div class="fn">Step 4</div>
+      <div class="ft">Run deploy script</div>
+      <div class="fs">Enter secrets interactively</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">
+      <div class="fn">Step 5</div>
+      <div class="ft">Upload .ovpn</div>
+      <div class="fs">filebrowser on :8888</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step" style="border-color:var(--green);">
+      <div class="fn" style="color:var(--green);">Done</div>
+      <div class="ft" style="color:var(--green);">Live ✓</div>
+      <div class="fs">Plex autoscaling active</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Step 1: Get the Repo ──────────────────────────────────────────────── -->
+<div class="section">
+  <h2><span class="num">1</span>Get the Repository</h2>
+  <div class="two">
+    <div class="card">
+      <h3>🐙 Via Git (recommended)</h3>
+      <div class="code"><pre><span class="cmd">git</span> clone https://github.com/djkidnyce/arrs-kube-plex-nest.git
+<span class="cmd">cd</span> arrs-kube-plex-nest</pre></div>
+      <p style="color:var(--muted);font-size:12px;">Future updates: <code style="color:var(--blue)">git pull</code> then re-run the deploy script.</p>
+    </div>
+    <div class="card">
+      <h3>📦 Via ZIP download</h3>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:10px;">Download from GitHub → Code → Download ZIP. Extract and open a terminal in the <code style="color:var(--orange)">arrs-kube-plex-nest</code> folder.</p>
+      <div class="alert alert-yellow" style="margin:0;">
+        <span>⚠️</span>
+        <span>ZIP downloads won't get updates automatically — prefer git clone.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Step 2: Install Tools ─────────────────────────────────────────────── -->
+<div class="section">
+  <h2><span class="num">2</span>Install or Upgrade kubectl &amp; helm</h2>
+
+  <div class="alert alert-blue">
+    <span>ℹ️</span>
+    <div>The installer checks <strong>existing versions first</strong>. If already installed and up to date, it does nothing. If a newer version is available, it prompts you to upgrade. Passwords are never stored — run as Administrator on Windows for system-wide PATH.</div>
+  </div>
+
+  <!-- Tabs -->
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-top:14px;">
+    <div class="tab-row">
+      <div class="tab active-win" onclick="switchTab('win')" id="tab-win">🪟 Windows Server</div>
+      <div class="tab" onclick="switchTab('linux')" id="tab-linux">🐧 Linux</div>
+    </div>
+
+    <!-- Windows tab -->
+    <div class="tab-content active" id="content-win" style="padding:20px 22px;">
+      <h3>Run install-tools.ps1 (PowerShell, as Administrator)</h3>
+      <div class="code"><pre><span class="c"># One-time: allow local scripts to run</span>
+<span class="cmd">Set-ExecutionPolicy</span> RemoteSigned <span class="flag">-Scope</span> CurrentUser
+
+<span class="c"># Run the installer — checks for existing installs before downloading</span>
+<span class="cmd">.\install-tools.ps1</span>
+
+<span class="c"># Force-upgrade to latest without prompting (CI / unattended):</span>
+<span class="cmd">.\install-tools.ps1</span> <span class="flag">-Force</span>
+
+<span class="c"># Custom install directory:</span>
+<span class="cmd">.\install-tools.ps1</span> <span class="flag">-InstallDir</span> <span class="path">"D:\k8s-tools"</span></pre></div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;">
+        <div class="tile">
+          <div class="tl">kubectl source</div>
+          <div class="tv">dl.k8s.io</div>
+          <div class="ts">Fetches stable.txt for latest version</div>
+        </div>
+        <div class="tile">
+          <div class="tl">helm source</div>
+          <div class="tv">get.helm.sh</div>
+          <div class="ts">Checks GitHub API for latest release</div>
+        </div>
+        <div class="tile">
+          <div class="tl">install location</div>
+          <div class="tv">C:\tools\</div>
+          <div class="ts">Added to PATH automatically</div>
+        </div>
+        <div class="tile">
+          <div class="tl">upgrade behaviour</div>
+          <div class="tv">Prompts Y/N</div>
+          <div class="ts">Shows old → new version before asking</div>
+        </div>
+      </div>
+
+      <div class="alert alert-yellow" style="margin-top:12px;">
+        <span>⚠️</span>
+        <div>After the script runs, <strong>open a new PowerShell window</strong> so the PATH update takes effect before running kubectl or helm.</div>
+      </div>
+
+      <h3 style="margin-top:18px;">What the version check looks like</h3>
+      <div class="code" style="font-size:12px;"><pre><span style="color:var(--green)">  ✓</span> kubectl installed  :  v1.33.1  (C:\tools\kubectl.exe)
+    Checking latest stable version from dl.k8s.io ...
+    Latest available  :  v1.34.0
+<span style="color:var(--purple)">  ↑</span> Upgrade available:  v1.33.1  →  v1.34.0
+  Upgrade kubectl to v1.34.0? [y/N]: <span style="color:var(--yellow)">y</span>
+    Downloading: https://dl.k8s.io/release/v1.34.0/bin/windows/amd64/kubectl.exe
+<span style="color:var(--green)">  ✓</span> kubectl v1.34.0 installed to C:\tools\kubectl.exe</pre></div>
+    </div>
+
+    <!-- Linux tab -->
+    <div class="tab-content" id="content-linux" style="padding:20px 22px;">
+      <h3>Run install-tools.sh (bash)</h3>
+      <div class="code"><pre><span class="c"># Make executable (only needed once)</span>
+<span class="cmd">chmod</span> +x install-tools.sh
+
+<span class="c"># Run — checks for existing installs before downloading</span>
+<span class="cmd">./install-tools.sh</span>
+
+<span class="c"># Force-upgrade to latest without prompting (CI / unattended):</span>
+<span class="cmd">./install-tools.sh</span> --force
+
+<span class="c"># Custom install directory (optional):</span>
+<span class="cmd">./install-tools.sh</span> --dir ~/bin</pre></div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;">
+        <div class="tile">
+          <div class="tl">kubectl source</div>
+          <div class="tv">dl.k8s.io</div>
+          <div class="ts">Fetches stable.txt for latest version</div>
+        </div>
+        <div class="tile">
+          <div class="tl">helm source</div>
+          <div class="tv">get.helm.sh</div>
+          <div class="ts">Checks GitHub API for latest release</div>
+        </div>
+        <div class="tile">
+          <div class="tl">install location</div>
+          <div class="tv">/usr/local/bin</div>
+          <div class="ts">Falls back to ~/bin if no sudo</div>
+        </div>
+        <div class="tile">
+          <div class="tl">architecture</div>
+          <div class="tv">Auto-detected</div>
+          <div class="ts">amd64 · arm64 · armv7</div>
+        </div>
+      </div>
+
+      <div class="alert alert-green" style="margin-top:12px;">
+        <span>✓</span>
+        <div>With sudo: installs to <code>/usr/local/bin</code> — already in PATH, nothing to reload. Without sudo: installs to <code>~/bin</code> and adds it to <code>~/.bashrc</code>.</div>
+      </div>
+
+      <h3 style="margin-top:18px;">What the version check looks like</h3>
+      <div class="code" style="font-size:12px;"><pre><span style="color:var(--green)">  ✓</span> kubectl installed  :  v1.36.2  (/usr/local/bin/kubectl)
+    Checking latest stable version from dl.k8s.io ...
+    Latest available  :  v1.37.0
+<span style="color:var(--purple)">  ↑</span> Upgrade available:  v1.36.2  →  v1.37.0
+  Upgrade kubectl to v1.37.0? [y/N]: <span style="color:var(--yellow)">y</span>
+    Downloading: https://dl.k8s.io/release/v1.37.0/bin/linux/amd64/kubectl
+<span style="color:var(--green)">  ✓</span> kubectl v1.37.0 installed to /usr/local/bin/kubectl
+
+<span style="color:var(--green)">  ✓</span> helm installed  :  v4.2.1  (/usr/local/bin/helm)
+    Checking latest release from github.com/helm/helm ...
+    Latest available  :  v4.2.1
+<span style="color:var(--green)">  ✓</span> helm is up to date (v4.2.1).</pre></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Step 3: kubeconfig ────────────────────────────────────────────────── -->
+<div class="section">
+  <h2><span class="num">3</span>Configure kubeconfig</h2>
+  <div class="two">
+    <div class="card">
+      <h3>🪟 Windows Server</h3>
+      <div class="code" style="font-size:12px;"><pre><span class="c"># Create the .kube directory</span>
+<span class="cmd">New-Item</span> <span class="flag">-ItemType</span> Directory <span class="path">"$env:USERPROFILE\.kube"</span> <span class="flag">-Force</span>
+
+<span class="c"># Copy kubeconfig from cluster (WinSCP / shared folder / USB)</span>
+<span class="c"># Destination:</span>
+<span class="path">$env:USERPROFILE\.kube\config</span>
+
+<span class="c"># If IP is 127.0.0.1 (common with k3s), replace with node IP:</span>
+(<span class="cmd">Get-Content</span> <span class="path">"$env:USERPROFILE\.kube\config"</span>) `
+  -replace <span class="str">'127\.0\.0\.1'</span>, <span class="str">'192.168.X.X'</span> `
+  | <span class="cmd">Set-Content</span> <span class="path">"$env:USERPROFILE\.kube\config"</span>
+
+<span class="cmd">kubectl</span> cluster-info   <span class="c"># verify</span></pre></div>
+    </div>
+    <div class="card">
+      <h3>🐧 Linux</h3>
+      <div class="code" style="font-size:12px;"><pre><span class="c"># k3s</span>
+<span class="cmd">scp</span> user@&lt;node-ip&gt;:/etc/rancher/k3s/k3s.yaml ~/.kube/config
+
+<span class="c"># kubeadm</span>
+<span class="cmd">scp</span> user@&lt;node-ip&gt;:/etc/kubernetes/admin.conf ~/.kube/config
+
+<span class="c"># RKE2</span>
+<span class="cmd">scp</span> user@&lt;node-ip&gt;:/etc/rancher/rke2/rke2.yaml ~/.kube/config
+
+<span class="c"># Secure the file and verify</span>
+<span class="cmd">chmod</span> 600 ~/.kube/config
+<span class="cmd">kubectl</span> cluster-info</pre></div>
+    </div>
+  </div>
+  <div class="alert alert-yellow">
+    <span>⚠️</span>
+    <div>The kubeconfig file contains cluster admin credentials. Never commit it to git. Treat it like a password file.</div>
+  </div>
+</div>
+
+<!-- ── Step 4: Deploy ────────────────────────────────────────────────────── -->
+<div class="section">
+  <h2><span class="num">4</span>Run the Deploy Script</h2>
+
+  <div class="two">
+    <div class="card">
+      <h3>🪟 Windows Server — deploy.ps1</h3>
+      <div class="code" style="font-size:12px;"><pre><span class="cmd">cd</span> arrs-kube-plex-nest
+
+<span class="c"># Preview (no changes):</span>
+<span class="cmd">.\deploy.ps1</span> <span class="flag">-DryRun</span>
+
+<span class="c"># Deploy:</span>
+<span class="cmd">.\deploy.ps1</span>
+
+<span class="c"># Custom namespace or values override:</span>
+<span class="cmd">.\deploy.ps1</span> <span class="flag">-Namespace</span> media <span class="flag">-ValuesFile</span> <span class="path">my-values.yaml</span></pre></div>
+    </div>
+    <div class="card">
+      <h3>🐧 Linux — deploy.sh</h3>
+      <div class="code" style="font-size:12px;"><pre><span class="cmd">cd</span> arrs-kube-plex-nest
+
+<span class="c"># Preview (no changes):</span>
+<span class="cmd">./deploy.sh</span> --dry-run
+
+<span class="c"># Deploy:</span>
+<span class="cmd">./deploy.sh</span>
+
+<span class="c"># Custom namespace or values override:</span>
+<span class="cmd">./deploy.sh</span> <span class="flag">-n</span> media <span class="flag">-f</span> my-values.yaml</pre></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:4px;">
+    <h3>What the deploy script prompts for</h3>
+    <div class="tile-grid">
+      <div class="tile"><div class="tl">NAS Host</div><div class="tv">IP or hostname</div><div class="ts">Your NAS address — never stored in files</div></div>
+      <div class="tile"><div class="tl">SMB Share</div><div class="tv">Share name</div><div class="ts">Share name on the NAS (default: media) + quota size</div></div>
+      <div class="tile"><div class="tl">SMB Credentials</div><div class="tv">Username + Password</div><div class="ts">SMB user — stored as Kubernetes Secret</div></div>
+      <div class="tile"><div class="tl">Plex Claim Token</div><div class="tv">plex.tv/claim</div><div class="ts">Valid 4 min — get it right before running</div></div>
+      <div class="tile"><div class="tl">VPN Credentials</div><div class="tv">Username + Password</div><div class="ts">Stored as openvpn.cred Secret (0400)</div></div>
+      <div class="tile"><div class="tl">ClamAV Webhook</div><div class="tv">ntfy / Discord / Slack URL</div><div class="ts">Leave blank to disable alerts</div></div>
+    </div>
+    <div class="alert alert-green" style="margin-top:4px;">
+      <span>🔒</span>
+      <div>All password prompts are hidden (<code>Read-Host -AsSecureString</code> / <code>read -s</code>). Values go directly into <code>kubectl create secret</code> and are never written to disk.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Architecture Diagram ──────────────────────────────────────────────── -->
+<div class="section">
+  <h2><span class="num">🏗</span>Cluster Architecture</h2>
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px;overflow:auto;">
+  <svg viewBox="0 0 900 520" xmlns="http://www.w3.org/2000/svg" width="100%" style="max-width:900px;display:block;margin:0 auto;">
+    <defs>
+      <marker id="a1" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+        <polygon points="0 0,7 2.5,0 5" fill="#58a6ff" opacity=".55"/>
+      </marker>
+      <marker id="a2" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+        <polygon points="0 0,7 2.5,0 5" fill="#3fb950" opacity=".55"/>
+      </marker>
+      <marker id="a3" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+        <polygon points="0 0,7 2.5,0 5" fill="#d29922" opacity=".55"/>
+      </marker>
+    </defs>
+    <rect width="900" height="520" fill="#0a0f1a" rx="8"/>
+    <!-- grid -->
+    <pattern id="g" x="0" y="0" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0L0 0 0 40" fill="none" stroke="#161b22" stroke-width="1"/>
+    </pattern>
+    <rect width="900" height="520" fill="url(#g)" opacity=".6"/>
+
+    <!-- Windows Server -->
+    <rect x="8" y="190" width="118" height="120" rx="8" fill="#161b22" stroke="#0078d4" stroke-width="1.5"/>
+    <rect x="8" y="190" width="118" height="20" rx="8" fill="#0078d4" opacity=".2"/>
+    <text x="67" y="205" text-anchor="middle" fill="#4da6ff" font-size="9" font-weight="bold" font-family="monospace">WINDOWS SERVER</text>
+    <rect x="20" y="218" width="94" height="22" rx="4" fill="#010409" stroke="#58a6ff" stroke-width="1"/>
+    <text x="67" y="232" text-anchor="middle" fill="#58a6ff" font-size="10" font-weight="bold">kubectl ✓</text>
+    <rect x="20" y="246" width="94" height="22" rx="4" fill="#010409" stroke="#a5a0f5" stroke-width="1"/>
+    <text x="67" y="260" text-anchor="middle" fill="#a5a0f5" font-size="10" font-weight="bold">helm ✓</text>
+    <text x="67" y="298" text-anchor="middle" fill="#8b949e" font-size="8">deploy.ps1</text>
+
+    <!-- Linux host -->
+    <rect x="8" y="330" width="118" height="120" rx="8" fill="#161b22" stroke="#e3913a" stroke-width="1.5"/>
+    <rect x="8" y="330" width="118" height="20" rx="8" fill="#e3913a" opacity=".15"/>
+    <text x="67" y="345" text-anchor="middle" fill="#e3913a" font-size="9" font-weight="bold" font-family="monospace">LINUX HOST</text>
+    <rect x="20" y="358" width="94" height="22" rx="4" fill="#010409" stroke="#58a6ff" stroke-width="1"/>
+    <text x="67" y="372" text-anchor="middle" fill="#58a6ff" font-size="10" font-weight="bold">kubectl ✓</text>
+    <rect x="20" y="386" width="94" height="22" rx="4" fill="#010409" stroke="#a5a0f5" stroke-width="1"/>
+    <text x="67" y="400" text-anchor="middle" fill="#a5a0f5" font-size="10" font-weight="bold">helm ✓</text>
+    <text x="67" y="438" text-anchor="middle" fill="#8b949e" font-size="8">deploy.sh</text>
+
+    <!-- Arrows to cluster -->
+    <line x1="127" y1="240" x2="158" y2="240" stroke="#4da6ff" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#a1)" opacity=".6"/>
+    <line x1="127" y1="380" x2="158" y2="380" stroke="#e3913a" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#a1)" opacity=".6"/>
+
+    <!-- K8s namespace outer border -->
+    <rect x="160" y="16" width="722" height="490" rx="10" fill="none" stroke="#30363d" stroke-width="1.5" stroke-dasharray="6,4"/>
+    <text x="178" y="36" fill="#8b949e" font-size="11" font-family="monospace">namespace: media</text>
+
+    <!-- HPA -->
+    <rect x="178" y="46" width="168" height="32" rx="16" fill="#1a2233" stroke="#d29922" stroke-width="1.5"/>
+    <text x="262" y="60" text-anchor="middle" fill="#d29922" font-size="10" font-weight="bold">⚡ HPA  plex-hpa</text>
+    <text x="262" y="71" text-anchor="middle" fill="#8b949e" font-size="9">1–3 replicas · 70% CPU target</text>
+    <line x1="262" y1="78" x2="262" y2="96" stroke="#d29922" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#a3)" opacity=".6"/>
+
+    <!-- Plex pods -->
+    <rect x="178" y="98" width="100" height="68" rx="7" fill="#1e2736" stroke="#58a6ff" stroke-width="1.5"/>
+    <text x="228" y="116" text-anchor="middle" fill="#58a6ff" font-size="10" font-weight="bold">plex-0</text>
+    <text x="228" y="130" text-anchor="middle" fill="#8b949e" font-size="8">:32400 → LB</text>
+    <text x="228" y="142" text-anchor="middle" fill="#8b949e" font-size="8">config-plex-0 PVC</text>
+    <text x="228" y="158" text-anchor="middle" fill="#3fb950" font-size="7">● always running</text>
+
+    <rect x="286" y="98" width="100" height="68" rx="7" fill="#1e2736" stroke="#58a6ff" stroke-width="1.2" stroke-dasharray="5,3"/>
+    <text x="336" y="116" text-anchor="middle" fill="#58a6ff" font-size="10" font-weight="bold">plex-1</text>
+    <text x="336" y="130" text-anchor="middle" fill="#8b949e" font-size="8">:32401 → LB</text>
+    <text x="336" y="142" text-anchor="middle" fill="#8b949e" font-size="8">config-plex-1 PVC</text>
+    <text x="336" y="158" text-anchor="middle" fill="#d29922" font-size="7">↑ scales on load</text>
+
+    <rect x="394" y="98" width="100" height="68" rx="7" fill="#1e2736" stroke="#58a6ff" stroke-width="1" stroke-dasharray="3,4" opacity=".6"/>
+    <text x="444" y="116" text-anchor="middle" fill="#58a6ff" font-size="10" font-weight="bold" opacity=".7">plex-2</text>
+    <text x="444" y="130" text-anchor="middle" fill="#8b949e" font-size="8" opacity=".7">:32402 → LB</text>
+    <text x="444" y="142" text-anchor="middle" fill="#8b949e" font-size="8" opacity=".7">config-plex-2 PVC</text>
+    <text x="444" y="158" text-anchor="middle" fill="#8b949e" font-size="7" opacity=".7">↑ max load only</text>
+
+    <!-- media PVC bar -->
+    <rect x="178" y="180" width="316" height="22" rx="4" fill="#010409" stroke="#3fb950" stroke-width="1"/>
+    <text x="336" y="194" text-anchor="middle" fill="#3fb950" font-size="8">📁  media-pvc   RWX · SMB 3.1.1 · seal · 10Ti  →  //&lt;your-nas-ip&gt;/media  (TrueNAS)</text>
+    <line x1="228" y1="166" x2="228" y2="180" stroke="#3fb950" stroke-width="1" opacity=".4"/>
+    <line x1="336" y1="166" x2="336" y2="180" stroke="#3fb950" stroke-width="1" opacity=".4"/>
+    <line x1="444" y1="166" x2="395" y2="180" stroke="#3fb950" stroke-width="1" opacity=".4"/>
+
+    <!-- SABnzbd pod -->
+    <rect x="178" y="216" width="316" height="136" rx="8" fill="#1e2736" stroke="#e3913a" stroke-width="1.5"/>
+    <text x="336" y="235" text-anchor="middle" fill="#e3913a" font-size="11" font-weight="bold">SABnzbd Pod</text>
+    <text x="336" y="248" text-anchor="middle" fill="#8b949e" font-size="8">all 4 containers share one network namespace → all traffic goes through VPN</text>
+    <!-- container boxes -->
+    <rect x="188" y="256" width="66" height="36" rx="5" fill="#010409" stroke="#f85149" stroke-width="1"/>
+    <text x="221" y="270" text-anchor="middle" fill="#f85149" font-size="8" font-weight="bold">gluetun</text>
+    <text x="221" y="281" text-anchor="middle" fill="#8b949e" font-size="7">VPN + kill-switch</text>
+    <text x="221" y="290" text-anchor="middle" fill="#f85149" font-size="7">🔒 PrivadoVPN</text>
+
+    <rect x="260" y="256" width="66" height="36" rx="5" fill="#010409" stroke="#58a6ff" stroke-width="1"/>
+    <text x="293" y="270" text-anchor="middle" fill="#58a6ff" font-size="8" font-weight="bold">sabnzbd</text>
+    <text x="293" y="281" text-anchor="middle" fill="#8b949e" font-size="7">:8080</text>
+    <text x="293" y="290" text-anchor="middle" fill="#8b949e" font-size="7">downloads via VPN</text>
+
+    <rect x="332" y="256" width="66" height="36" rx="5" fill="#010409" stroke="#d29922" stroke-width="1"/>
+    <text x="365" y="270" text-anchor="middle" fill="#d29922" font-size="8" font-weight="bold">rotator</text>
+    <text x="365" y="281" text-anchor="middle" fill="#8b949e" font-size="7">VPN rotation</text>
+    <text x="365" y="290" text-anchor="middle" fill="#8b949e" font-size="7">hot-reloadable</text>
+
+    <rect x="404" y="256" width="78" height="36" rx="5" fill="#010409" stroke="#a5a0f5" stroke-width="1"/>
+    <text x="443" y="270" text-anchor="middle" fill="#a5a0f5" font-size="8" font-weight="bold">filebrowser</text>
+    <text x="443" y="281" text-anchor="middle" fill="#8b949e" font-size="7">:8888</text>
+    <text x="443" y="290" text-anchor="middle" fill="#8b949e" font-size="7">upload .ovpn files</text>
+
+    <text x="336" y="322" text-anchor="middle" fill="#8b949e" font-size="8">RFC-1918 bypasses tunnel → Sonarr/Radarr can reach SABnzbd ClusterIP without going through VPN</text>
+    <text x="336" y="338" text-anchor="middle" fill="#8b949e" font-size="8">init container patches auth-user-pass path in .ovpn files before gluetun starts</text>
+
+    <!-- *arr + misc -->
+    <rect x="508" y="46" width="118" height="74" rx="7" fill="#1e2736" stroke="#39c5cf" stroke-width="1.5"/>
+    <text x="567" y="64" text-anchor="middle" fill="#39c5cf" font-size="10" font-weight="bold">*arr Stack</text>
+    <text x="567" y="78" text-anchor="middle" fill="#8b949e" font-size="8">Sonarr   :8989</text>
+    <text x="567" y="90" text-anchor="middle" fill="#8b949e" font-size="8">Radarr   :7878</text>
+    <text x="567" y="102" text-anchor="middle" fill="#8b949e" font-size="8">Lidarr   :8686</text>
+    <text x="567" y="113" text-anchor="middle" fill="#8b949e" font-size="7">→ SABnzbd via ClusterIP</text>
+
+    <rect x="508" y="130" width="118" height="52" rx="7" fill="#1e2736" stroke="#e06c9f" stroke-width="1.5"/>
+    <text x="567" y="149" text-anchor="middle" fill="#e06c9f" font-size="10" font-weight="bold">Requests</text>
+    <text x="567" y="163" text-anchor="middle" fill="#8b949e" font-size="8">Overseerr :5055 ← external</text>
+    <text x="567" y="175" text-anchor="middle" fill="#8b949e" font-size="8">Tautulli  :8181</text>
+
+    <!-- ClamAV -->
+    <rect x="508" y="196" width="118" height="82" rx="7" fill="#1e2736" stroke="#8b949e" stroke-width="1.2" stroke-dasharray="5,3"/>
+    <text x="567" y="214" text-anchor="middle" fill="#8b949e" font-size="10" font-weight="bold">ClamAV</text>
+    <text x="567" y="228" text-anchor="middle" fill="#8b949e" font-size="8">CronJob (daily)</text>
+    <text x="567" y="239" text-anchor="middle" fill="#8b949e" font-size="7">2:30 AM · files from last 24h</text>
+    <text x="567" y="252" text-anchor="middle" fill="#8b949e" font-size="8">CronJob (monthly)</text>
+    <text x="567" y="263" text-anchor="middle" fill="#8b949e" font-size="7">4:00 AM 1st · full library</text>
+    <text x="567" y="274" text-anchor="middle" fill="#8b949e" font-size="7">ntfy · discord · slack · gotify</text>
+
+    <!-- NetworkPolicy -->
+    <rect x="508" y="292" width="118" height="48" rx="7" fill="#1e2736" stroke="#d29922" stroke-width="1"/>
+    <text x="567" y="309" text-anchor="middle" fill="#d29922" font-size="9" font-weight="bold">🛡 NetworkPolicy</text>
+    <text x="567" y="322" text-anchor="middle" fill="#8b949e" font-size="7">default-deny all ingress</text>
+    <text x="567" y="332" text-anchor="middle" fill="#8b949e" font-size="7">Plex + Seerr allowed external</text>
+
+    <!-- SMB CSI + metrics-server (right side) -->
+    <rect x="642" y="46" width="220" height="44" rx="7" fill="#1a2233" stroke="#3fb950" stroke-width="1"/>
+    <text x="752" y="63" text-anchor="middle" fill="#3fb950" font-size="10" font-weight="bold">SMB CSI Driver  (kube-system)</text>
+    <text x="752" y="77" text-anchor="middle" fill="#8b949e" font-size="8">smb.csi.k8s.io · vers=3.1.1 · seal (AES-128-GCM)</text>
+
+    <rect x="642" y="102" width="220" height="38" rx="7" fill="#1a2233" stroke="#d29922" stroke-width="1"/>
+    <text x="752" y="118" text-anchor="middle" fill="#d29922" font-size="10" font-weight="bold">metrics-server  (kube-system)</text>
+    <text x="752" y="131" text-anchor="middle" fill="#8b949e" font-size="8">CPU metrics → HPA scaling decisions</text>
+
+    <!-- Linux nodes box -->
+    <rect x="642" y="154" width="220" height="170" rx="7" fill="#1a2233" stroke="#3fb950" stroke-width="1"/>
+    <text x="752" y="172" text-anchor="middle" fill="#3fb950" font-size="9" font-weight="bold">Linux Worker Nodes</text>
+    <text x="752" y="183" text-anchor="middle" fill="#8b949e" font-size="7">nodeSelector: kubernetes.io/os: linux</text>
+    <text x="752" y="196" text-anchor="middle" fill="#8b949e" font-size="8">All images are Linux-only.</text>
+    <text x="752" y="207" text-anchor="middle" fill="#8b949e" font-size="8">Works on mixed Windows/Linux clusters</text>
+    <text x="752" y="218" text-anchor="middle" fill="#8b949e" font-size="8">— pods stay on Linux nodes automatically.</text>
+    <line x1="662" y1="234" x2="842" y2="234" stroke="#30363d" stroke-width="1"/>
+    <text x="752" y="249" text-anchor="middle" fill="#8b949e" font-size="8">plex-0  plex-1  plex-2</text>
+    <text x="752" y="263" text-anchor="middle" fill="#8b949e" font-size="8">sabnzbd (gluetun+sabnzbd+rotator+filebrowser)</text>
+    <text x="752" y="277" text-anchor="middle" fill="#8b949e" font-size="8">sonarr  radarr  lidarr  overseerr  tautulli</text>
+    <text x="752" y="291" text-anchor="middle" fill="#8b949e" font-size="8">clamav-daily  clamav-monthly</text>
+    <text x="752" y="305" text-anchor="middle" fill="#d29922" font-size="7">+ /dev/net/tun hostPath (gluetun)</text>
+
+    <!-- Secrets note -->
+    <rect x="642" y="340" width="220" height="76" rx="7" fill="#1a2233" stroke="#e06c9f" stroke-width="1"/>
+    <text x="752" y="356" text-anchor="middle" fill="#e06c9f" font-size="9" font-weight="bold">🔒 Secrets (never in git)</text>
+    <text x="752" y="370" text-anchor="middle" fill="#8b949e" font-size="7">smb-credentials</text>
+    <text x="752" y="382" text-anchor="middle" fill="#8b949e" font-size="7">plex-claim</text>
+    <text x="752" y="394" text-anchor="middle" fill="#8b949e" font-size="7">vpn-credentials  (openvpn.cred · 0400)</text>
+    <text x="752" y="406" text-anchor="middle" fill="#8b949e" font-size="7">clamav-notify  (webhook URL)</text>
+
+    <!-- nodeSelector label bottom -->
+    <rect x="178" y="430" width="570" height="22" rx="4" fill="#010409" stroke="#30363d" stroke-width="1"/>
+    <text x="463" y="444" text-anchor="middle" fill="#8b949e" font-size="8">nodeSelector: kubernetes.io/os: linux  applied to every pod — harmless on all-Linux clusters, required on mixed Windows/Linux</text>
+  </svg>
+  </div>
+</div>
+
+<!-- ── Services & Ports ──────────────────────────────────────────────────── -->
+<div class="section">
+  <h2><span class="num">🔌</span>Services &amp; Ports</h2>
+  <div class="card" style="padding:0;overflow:hidden;">
+    <table>
+      <tr><th>Service</th><th>Port</th><th>Type</th><th>Notes</th></tr>
+      <tr><td class="mn">plex-0</td><td class="mp">32400</td><td class="ext">LoadBalancer</td><td>Always running</td></tr>
+      <tr><td class="mn">plex-1</td><td class="mp">32401</td><td class="ext">LoadBalancer</td><td>HPA scale-up</td></tr>
+      <tr><td class="mn">plex-2</td><td class="mp">32402</td><td class="ext">LoadBalancer</td><td>HPA scale-up (max replicas)</td></tr>
+      <tr><td class="mn">seerr</td><td class="mp">5055</td><td class="ext">LoadBalancer</td><td>Overseerr — media requests</td></tr>
+      <tr><td class="mn">sabnzbd</td><td class="mp">8080</td><td class="int">ClusterIP</td><td>kubectl port-forward to access</td></tr>
+      <tr><td class="mn">sabnzbd-filebrowser</td><td class="mp">8888</td><td class="int">ClusterIP</td><td>Upload .ovpn files here</td></tr>
+      <tr><td class="mn">sabnzbd-vpn</td><td class="mp">8000</td><td class="int">ClusterIP</td><td>gluetun control API</td></tr>
+      <tr><td class="mn">sonarr</td><td class="mp">8989</td><td class="int">ClusterIP</td><td></td></tr>
+      <tr><td class="mn">radarr</td><td class="mp">7878</td><td class="int">ClusterIP</td><td></td></tr>
+      <tr><td class="mn">lidarr</td><td class="mp">8686</td><td class="int">ClusterIP</td><td></td></tr>
+      <tr><td class="mn">tautulli</td><td class="mp">8181</td><td class="int">ClusterIP</td><td></td></tr>
+    </table>
+  </div>
+  <div class="code" style="margin-top:10px;font-size:12px;"><pre><span class="c"># Get all service IPs after deploy:</span>
+<span class="cmd">kubectl</span> get svc -n media
+
+<span class="c"># Access any ClusterIP service locally:</span>
+<span class="cmd">kubectl</span> port-forward svc/sabnzbd-filebrowser 8888:8888 -n media</pre></div>
+</div>
+
+<!-- ── Post-Deploy Checklist ─────────────────────────────────────────────── -->
+<div class="section">
+  <h2><span class="num">5</span>Post-Deploy Checklist</h2>
+  <div class="card">
+    <ul class="cl">
+      <li>
+        <span class="ch">☐</span>
+        <div class="ct">
+          <div>Upload <code>.ovpn</code> file via filebrowser</div>
+          <div class="cs">kubectl port-forward svc/sabnzbd-filebrowser 8888:8888 -n media → http://localhost:8888 (admin/admin — change password!)</div>
+        </div>
+      </li>
+      <li>
+        <span class="ch">☐</span>
+        <div class="ct">
+          <div>Restart SABnzbd to apply patched .ovpn</div>
+          <div class="cs">kubectl rollout restart deployment/sabnzbd -n media</div>
+        </div>
+      </li>
+      <li>
+        <span class="ch">☐</span>
+        <div class="ct">
+          <div>Claim Plex server (plex-0)</div>
+          <div class="cs">Visit http://&lt;plex-0-LB-IP&gt;:32400/web · claim token entered during deploy · fresh token: plex.tv/claim</div>
+        </div>
+      </li>
+      <li>
+        <span class="ch">☐</span>
+        <div class="ct">
+          <div>Connect Sonarr + Radarr to SABnzbd</div>
+          <div class="cs">Host: sabnzbd.media.svc.cluster.local · Port: 8080 · API key: SABnzbd → Settings → General</div>
+        </div>
+      </li>
+      <li>
+        <span class="ch">☐</span>
+        <div class="ct">
+          <div>Verify VPN is active</div>
+          <div class="cs">kubectl port-forward svc/sabnzbd-vpn 8000:8000 -n media → curl http://localhost:8000/v1/openvpn/status</div>
+        </div>
+      </li>
+      <li>
+        <span class="ch">☐</span>
+        <div class="ct">
+          <div>Confirm Plex HPA is getting CPU metrics</div>
+          <div class="cs">kubectl get hpa plex-hpa -n media  (TARGETS column should show a % not "&lt;unknown&gt;")</div>
+        </div>
+      </li>
+      <li>
+        <span class="ch">☐</span>
+        <div class="ct">
+          <div>Run a test ClamAV scan</div>
+          <div class="cs">kubectl create job --from=cronjob/clamav-daily test-scan -n media</div>
+        </div>
+      </li>
+    </ul>
+  </div>
+</div>
+
+<!-- ── Quick Reference ───────────────────────────────────────────────────── -->
+<div class="section">
+  <h2><span class="num">📋</span>Quick Reference</h2>
+  <div class="two">
+    <div class="card">
+      <h3>Status commands</h3>
+      <div class="code" style="font-size:12px;"><pre><span class="cmd">kubectl</span> get pods -n media
+<span class="cmd">kubectl</span> get hpa plex-hpa -n media -w
+<span class="cmd">kubectl</span> logs -l app=sabnzbd -c gluetun \
+  -n media --tail=30
+<span class="cmd">kubectl</span> logs -l scan-type=daily \
+  -n media --tail=50</pre></div>
+    </div>
+    <div class="card">
+      <h3>Maintenance</h3>
+      <div class="code" style="font-size:12px;"><pre><span class="c"># Change VPN rotation (hot-reload)</span>
+<span class="cmd">kubectl</span> edit cm vpn-config -n media
+
+<span class="c"># Manual ClamAV scan</span>
+<span class="cmd">kubectl</span> create job \
+  --from=cronjob/clamav-daily \
+  manual-$(date +%s) -n media
+
+<span class="c"># Upgrade chart</span>
+<span class="cmd">./deploy.ps1</span>  <span class="c"># or ./deploy.sh</span></pre></div>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  Arrs Kube Plex Nest &nbsp;·&nbsp; Helm v4.x &nbsp;·&nbsp; June 2026 &nbsp;·&nbsp;
+  <a href="https://dl.k8s.io/release/stable.txt">kubectl CDN</a> &nbsp;·&nbsp;
+  <a href="https://get.helm.sh">helm CDN</a> &nbsp;·&nbsp;
+  <a href="https://github.com/helm/helm/releases">Helm releases</a> &nbsp;·&nbsp;
+  <a href="https://kubernetes.io/docs/tasks/tools/install-kubectl-windows/">kubectl Windows install</a>
+</div>
+
+</div><!-- /page -->
+
+<script>
+function switchTab(platform) {
+  document.getElementById('content-win').classList.remove('active');
+  document.getElementById('content-linux').classList.remove('active');
+  document.getElementById('tab-win').classList.remove('active-win','active-linux');
+  document.getElementById('tab-linux').classList.remove('active-win','active-linux');
+  document.getElementById('content-' + platform).classList.add('active');
+  document.getElementById('tab-' + platform).classList.add(platform === 'win' ? 'active-win' : 'active-linux');
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+# ── Kubernetes / credentials ─────────────────────────────────────────────────
+kubeconfig
+*.cred
+*.ovpn
+secrets-override.yaml
+my-values.yaml
+*-override.yaml
+
+# ── Helm generated ────────────────────────────────────────────────────────────
+charts/
+.helmignore
+
+# ── OS clutter ────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Editor ────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo

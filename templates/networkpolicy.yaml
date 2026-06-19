@@ -1,0 +1,88 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# NetworkPolicies
+#
+# Default: deny all ingress to every pod in the namespace.
+# Exceptions:
+#   1. All pods can talk to each other within the namespace (intra-namespace).
+#   2. Plex pods accept external ingress on their assigned ports.
+#   3. Overseerr accepts external ingress on port 5055.
+#
+# Egress is unrestricted (gluetun's iptables already enforce VPN for SABnzbd).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 1. Default-deny all ingress
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  podSelector: {}   # applies to all pods in namespace
+  policyTypes:
+    - Ingress
+  # No ingress rules → deny everything by default
+
+---
+# 2. Allow all pods to talk to each other within the namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intra-namespace
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+
+---
+# 3. Allow external ingress to Plex pods
+#    One policy covers all plex-* pods; each has its own LB service.
+{{- $basePort := .Values.plex.basePort | int }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: plex-external-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: plex
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: plex
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 32400
+
+---
+# 4. Allow external ingress to Overseerr
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: seerr-external-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: seerr
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: seerr
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: {{ .Values.seerr.port }}

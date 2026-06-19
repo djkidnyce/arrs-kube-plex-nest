@@ -1,0 +1,83 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Config PVCs — one per service, RWO (local-path or default StorageClass)
+# Plex config PVCs are NOT here — they're in the StatefulSet volumeClaimTemplates.
+# ─────────────────────────────────────────────────────────────────────────────
+
+{{- $ns := .Release.Namespace }}
+{{- $labels := include "akpn.labels" . }}
+
+{{- $configPVCs := list
+  (dict "name" "sabnzbd-config" "size" .Values.sabnzbd.configStorageSize)
+  (dict "name" "sonarr-config"  "size" .Values.sonarr.configStorageSize)
+  (dict "name" "radarr-config"  "size" .Values.radarr.configStorageSize)
+  (dict "name" "lidarr-config"  "size" .Values.lidarr.configStorageSize)
+  (dict "name" "seerr-config"   "size" .Values.seerr.configStorageSize)
+  (dict "name" "tautulli-config" "size" .Values.tautulli.configStorageSize)
+}}
+
+{{- range $configPVCs }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .name }}
+  namespace: {{ $ns }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .size }}
+{{- end }}
+
+---
+# VPN .ovpn file storage — uploaded via filebrowser UI
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vpn-configs
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.vpn.configStorageSize }}
+
+---
+# filebrowser database (admin UI for uploading .ovpn files)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: filebrowser-db
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: "256Mi"
+
+{{- if .Values.clamav.enabled }}
+---
+# ClamAV virus definition database
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: clamav-definitions
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.clamav.definitionsStorageSize }}
+{{- end }}

@@ -1,0 +1,53 @@
+{{- if .Values.plex.autoscaling.enabled }}
+# ─────────────────────────────────────────────────────────────────────────────
+# Plex HPA — autoscaling/v2 with behavior tuning
+#
+# Scale-UP:   fast ({{ .Values.plex.autoscaling.scaleUpStabilizationSeconds }}s stabilization)
+#             → a new Plex stream doesn't wait long for capacity
+# Scale-DOWN: slow ({{ .Values.plex.autoscaling.scaleDownStabilizationSeconds }}s / {{ div .Values.plex.autoscaling.scaleDownStabilizationSeconds 60 }} min stabilization)
+#             → avoids killing a pod with active streams mid-transcode
+#
+# Metrics server must be installed for HPA to function:
+#   kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: plex-hpa
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: plex
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: plex
+  minReplicas: {{ .Values.plex.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.plex.autoscaling.maxReplicas }}
+
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.plex.autoscaling.targetCPUUtilizationPercentage }}
+
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: {{ .Values.plex.autoscaling.scaleUpStabilizationSeconds }}
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+      selectPolicy: Max
+
+    scaleDown:
+      stabilizationWindowSeconds: {{ .Values.plex.autoscaling.scaleDownStabilizationSeconds }}
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+      selectPolicy: Min
+{{- end }}

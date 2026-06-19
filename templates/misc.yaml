@@ -1,0 +1,118 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Miscellaneous Deployments — Overseerr (seerr) and Tautulli
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Overseerr ───────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: seerr
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: seerr
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: seerr
+  template:
+    metadata:
+      labels:
+        app: seerr
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: seerr
+          image: {{ .Values.seerr.image }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: {{ .Values.seerr.port }}
+          env:
+            {{- include "akpn.globalEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.seerr.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /api/v1/status
+              port: {{ .Values.seerr.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/v1/status
+              port: {{ .Values.seerr.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: seerr-config
+
+---
+# ── Tautulli ────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tautulli
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: tautulli
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: tautulli
+  template:
+    metadata:
+      labels:
+        app: tautulli
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: tautulli
+          image: {{ .Values.tautulli.image }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: {{ .Values.tautulli.port }}
+          env:
+            {{- include "akpn.globalEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.tautulli.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: {{ .Values.tautulli.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: {{ .Values.tautulli.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          volumeMounts:
+            - name: config
+              mountPath: /config
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: tautulli-config

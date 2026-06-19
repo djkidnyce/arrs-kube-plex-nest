@@ -1,0 +1,57 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ConfigMap: media-env — global environment shared by all LSIO containers
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: media-env
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "akpn.labels" . | nindent 4 }}
+data:
+  PUID: {{ .Values.global.puid | quote }}
+  PGID: {{ .Values.global.pgid | quote }}
+  TZ:   {{ .Values.global.timezone | quote }}
+  VERSION: "docker"
+
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# ConfigMap: vpn-config — VPN rotation script + tunable interval
+#
+# To change rotation frequency without restarting the pod:
+#   kubectl edit configmap vpn-config -n <namespace>
+#   Change rotation-interval-seconds (0 = disabled)
+#   The vpn-rotator container re-reads the file on every loop iteration.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vpn-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "akpn.labels" . | nindent 4 }}
+data:
+  rotation-interval-seconds: {{ .Values.vpn.rotationIntervalSeconds | quote }}
+  firewall-outbound-subnets: {{ .Values.vpn.firewallOutboundSubnets | quote }}
+  rotate.sh: |
+{{ .Files.Get "files/scripts/rotate.sh" | indent 4 }}
+
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# ConfigMap: clamav-config — scan script + tunable parameters
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clamav-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "akpn.labels" . | nindent 4 }}
+data:
+  NOTIFICATION_TYPE: {{ .Values.clamav.notificationType | quote }}
+  NOTIFY_ON_CLEAN:   {{ .Values.clamav.notifyOnClean | quote }}
+  SCAN_DIR:  "/mnt/media"
+  DB_PATH:   "/var/lib/clamav"
+  MAX_FILE_SIZE: {{ .Values.clamav.maxFileSize | quote }}
+  scan.sh: |
+{{ .Files.Get "files/scripts/scan.sh" | indent 4 }}

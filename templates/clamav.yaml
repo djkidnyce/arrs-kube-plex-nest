@@ -1,0 +1,200 @@
+{{- if .Values.clamav.enabled }}
+# ─────────────────────────────────────────────────────────────────────────────
+# ClamAV CronJobs
+#
+# Daily  ({{ .Values.clamav.daily.schedule }}):  quick scan — files modified in last 24 hours
+# Monthly ({{ .Values.clamav.monthly.schedule }}): full scan  — entire media library
+#
+# Both use concurrencyPolicy: Forbid so they never run simultaneously
+# (which would conflict on the RWO definitions PVC).
+# The schedules are intentionally staggered (2:30 AM vs 4:00 AM on the 1st).
+#
+# Webhook notifications go to the URL in the clamav-notify Secret.
+# Platform format is controlled by clamav.notificationType in values.yaml.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Daily Quick Scan ─────────────────────────────────────────────────────────
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: clamav-daily
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: clamav
+    scan-type: daily
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.clamav.daily.schedule | quote }}
+  timeZone: {{ .Values.clamav.daily.timeZone | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 7200    # 2 hours max for daily
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app: clamav
+            scan-type: daily
+        spec:
+          restartPolicy: OnFailure
+          nodeSelector:
+            kubernetes.io/os: linux
+          securityContext:
+            runAsUser: 0    # clamav needs root to read all files
+          containers:
+            - name: clamav-scanner
+              image: {{ .Values.clamav.image }}
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - /scripts/scan.sh
+              env:
+                - name: SCAN_TYPE
+                  value: "quick"
+                - name: SCAN_DIR
+                  valueFrom:
+                    configMapKeyRef:
+                      name: clamav-config
+                      key: SCAN_DIR
+                - name: DB_PATH
+                  valueFrom:
+                    configMapKeyRef:
+                      name: clamav-config
+                      key: DB_PATH
+                - name: MAX_FILE_SIZE
+                  valueFrom:
+                    configMapKeyRef:
+                      name: clamav-config
+                      key: MAX_FILE_SIZE
+                - name: NOTIFICATION_TYPE
+                  valueFrom:
+                    configMapKeyRef:
+                      name: clamav-config
+                      key: NOTIFICATION_TYPE
+                - name: NOTIFY_ON_CLEAN
+                  valueFrom:
+                    configMapKeyRef:
+                      name: clamav-config
+                      key: NOTIFY_ON_CLEAN
+                - name: WEBHOOK_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: clamav-notify
+                      key: webhook-url
+              volumeMounts:
+                - name: media
+                  mountPath: /mnt/media
+                  readOnly: true
+                - name: definitions
+                  mountPath: /var/lib/clamav
+                - name: scan-script
+                  mountPath: /scripts
+          volumes:
+            - name: media
+              persistentVolumeClaim:
+                claimName: media-pvc
+            - name: definitions
+              persistentVolumeClaim:
+                claimName: clamav-definitions
+            - name: scan-script
+              configMap:
+                name: clamav-config
+                items:
+                  - key: scan.sh
+                    path: scan.sh
+                    mode: 0755
+
+---
+# ── Monthly Full Scan ─────────────────────────────────────────────────────────
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: clamav-monthly
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: clamav
+    scan-type: monthly
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.clamav.monthly.schedule | quote }}
+  timeZone: {{ .Values.clamav.monthly.timeZone | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 86400   # 24 hours max for full library scan
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app: clamav
+            scan-type: monthly
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsUser: 0
+          containers:
+            - name: clamav-scanner
+              image: {{ .Values.clamav.image }}
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - /scripts/scan.sh
+              env:
+                - name: SCAN_TYPE
+                  value: "full"
+                - name: SCAN_DIR
+                  valueFrom:
+                    configMapKeyRef:
+                      name: clamav-config
+                      key: SCAN_DIR
+                - name: DB_PATH
+                  valueFrom:
+                    configMapKeyRef:
+                      name: clamav-config
+                      key: DB_PATH
+                - name: MAX_FILE_SIZE
+                  valueFrom:
+                    configMapKeyRef:
+                      name: clamav-config
+                      key: MAX_FILE_SIZE
+                - name: NOTIFICATION_TYPE
+                  valueFrom:
+                    configMapKeyRef:
+                      name: clamav-config
+                      key: NOTIFICATION_TYPE
+                # Monthly always sends a result — overrides the global notifyOnClean
+                - name: NOTIFY_ON_CLEAN
+                  value: {{ .Values.clamav.monthly.alwaysNotify | quote }}
+                - name: WEBHOOK_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: clamav-notify
+                      key: webhook-url
+              volumeMounts:
+                - name: media
+                  mountPath: /mnt/media
+                  readOnly: true
+                - name: definitions
+                  mountPath: /var/lib/clamav
+                - name: scan-script
+                  mountPath: /scripts
+          volumes:
+            - name: media
+              persistentVolumeClaim:
+                claimName: media-pvc
+            - name: definitions
+              persistentVolumeClaim:
+                claimName: clamav-definitions
+            - name: scan-script
+              configMap:
+                name: clamav-config
+                items:
+                  - key: scan.sh
+                    path: scan.sh
+                    mode: 0755
+{{- end }}

@@ -1,0 +1,102 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Plex StatefulSet
+#
+# WHY StatefulSet + volumeClaimTemplates (not Deployment + shared PVC):
+#   Each autoscaled replica needs its own /config directory. With a regular
+#   Deployment all pods would try to share one RWO PVC, which fails.
+#   StatefulSet gives each pod a dedicated PVC:
+#     plex-0 → plex-config-plex-0
+#     plex-1 → plex-config-plex-1
+#     plex-2 → plex-config-plex-2
+#   The shared media (SMB, RWX) mounts normally.
+#
+# Scaling:
+#   HPA (plex-hpa.yaml) targets this StatefulSet.
+#   Add replicas with: helm upgrade akpn . --set plex.autoscaling.maxReplicas=4
+#   Per-pod LoadBalancer services are in plex-services.yaml.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: plex
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: plex
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  serviceName: plex-headless
+  # minReplicas from HPA; setting this directly ensures at least 1 on first deploy
+  replicas: {{ .Values.plex.autoscaling.minReplicas }}
+  podManagementPolicy: Parallel   # start/stop all replicas simultaneously
+  selector:
+    matchLabels:
+      app: plex
+  template:
+    metadata:
+      labels:
+        app: plex
+    spec:
+      # Required when Windows nodes are present in the cluster.
+      # All Arrs Kube Plex Nest images are Linux — this prevents scheduling on Windows nodes.
+      nodeSelector:
+        kubernetes.io/os: linux
+
+      securityContext:
+        fsGroup: 1000
+
+      terminationGracePeriodSeconds: 60
+
+      containers:
+        - name: plex
+          image: {{ .Values.plex.image }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 32400
+              protocol: TCP
+          env:
+            {{- include "akpn.globalEnv" . | nindent 12 }}
+            - name: PLEX_CLAIM
+              valueFrom:
+                secretKeyRef:
+                  name: plex-claim
+                  key: token
+                  optional: true   # only needed for initial server claim
+          resources:
+            {{- toYaml .Values.plex.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /web/index.html
+              port: 32400
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /web/index.html
+              port: 32400
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: media
+              mountPath: /mnt/media
+
+      volumes:
+        - name: media
+          persistentVolumeClaim:
+            claimName: media-pvc
+
+  # Each replica gets its own config PVC via this template.
+  # PVC names: plex-config-plex-0, plex-config-plex-1, …
+  volumeClaimTemplates:
+    - metadata:
+        name: config
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: {{ .Values.plex.configStorageSize }}

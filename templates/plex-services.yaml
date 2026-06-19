@@ -1,0 +1,67 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Plex Services
+#
+# 1. Headless service — required by the StatefulSet for stable pod DNS
+#    (plex-0.plex-headless.media.svc.cluster.local, etc.)
+#
+# 2. Per-pod LoadBalancer services — one per maxReplicas slot, each pointing
+#    to a specific pod via the statefulset.kubernetes.io/pod-name label.
+#    External ports:
+#      plex-0 → basePort     (default: 32400)
+#      plex-1 → basePort + 1 (default: 32401)
+#      plex-2 → basePort + 2 (default: 32402)
+#
+# Note: services for plex-1, plex-2 … exist even when those pods are scaled
+# down. The LB simply has no endpoints, which is harmless.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Headless service (StatefulSet DNS)
+apiVersion: v1
+kind: Service
+metadata:
+  name: plex-headless
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: plex
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    app: plex
+  ports:
+    - name: plex
+      port: 32400
+      targetPort: 32400
+      protocol: TCP
+
+---
+# Per-pod LoadBalancer services
+{{- $basePort := .Values.plex.basePort | int }}
+{{- $ns := .Release.Namespace }}
+{{- $labels := include "akpn.labels" . }}
+{{- range $i := until (.Values.plex.autoscaling.maxReplicas | int) }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: plex-{{ $i }}
+  namespace: {{ $ns }}
+  labels:
+    app: plex
+    app.kubernetes.io/instance: plex-{{ $i }}
+    {{- $labels | nindent 4 }}
+  annotations:
+    # Uncomment to pin a specific IP (e.g. on MetalLB):
+    # metallb.universe.tf/loadBalancerIPs: "192.168.5.{{ add 100 $i }}"
+spec:
+  type: LoadBalancer
+  # Route exclusively to this pod, not the whole StatefulSet
+  selector:
+    app: plex
+    statefulset.kubernetes.io/pod-name: plex-{{ $i }}
+  ports:
+    - name: plex
+      port: {{ add $basePort $i }}
+      targetPort: 32400
+      protocol: TCP
+{{- end }}

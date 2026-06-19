@@ -1,0 +1,177 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# arrs-kube-plex-nest — central values file
+# Every value here can be overridden at deploy time:
+#   helm upgrade --install akpn . --set plex.autoscaling.maxReplicas=4
+# Or with a custom values file:
+#   helm upgrade --install akpn . -f my-values.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Global ────────────────────────────────────────────────────────────────────
+global:
+  puid: "1000"
+  pgid: "1000"
+  timezone: "America/New_York"   # used by all services
+
+# ── NAS / TrueNAS SMB share ───────────────────────────────────────────────────
+# REQUIRED: nas.host and nas.mediaShare must be set at deploy time.
+# The deploy scripts (deploy.sh / deploy.ps1) will prompt for these values
+# and pass them via --set so you never need to edit this file directly.
+# You can also supply them yourself:
+#   helm upgrade --install akpn . \
+#     --set nas.host=192.168.1.100 \
+#     --set nas.mediaShare=media
+nas:
+  host: ""                        # REQUIRED — set by deploy script prompt
+  mediaShare: "media"             # SMB share name on the NAS (default: media)
+  smbVersion: "3.1.1"            # latest; TrueNAS SCALE/CORE both support it
+  mountOptions:                  # applied to the PV and StorageClass
+    - vers=3.1.1
+    - seal                       # AES-128-GCM wire encryption
+    - uid=1000
+    - gid=1000
+    - file_mode=0777
+    - dir_mode=0777
+    - noperm
+    - iocharset=utf8
+    - nobrl
+  mediaShareSize: "10Ti"         # must match your actual TrueNAS quota
+
+# ── Plex ──────────────────────────────────────────────────────────────────────
+# Runs as a StatefulSet so each autoscaled replica gets its OWN config PVC.
+# plex-0 is always running (minReplicas: 1).
+# Under CPU load, HPA spins up plex-1, plex-2, … up to maxReplicas.
+# External ports: plex-0 → basePort, plex-1 → basePort+1, etc.
+plex:
+  image: "lscr.io/linuxserver/plex:latest"
+  basePort: 32400
+
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+    # Scale-up fast so a new stream doesn't wait long
+    scaleUpStabilizationSeconds: 30
+    # Scale-down slowly — 10 min cooldown avoids killing an active stream
+    scaleDownStabilizationSeconds: 600
+
+  configStorageSize: "10Gi"   # per-replica; plex-0-config, plex-1-config, …
+
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "4000m"
+      memory: "4Gi"
+
+# ── VPN (gluetun sidecar in SABnzbd pod) ─────────────────────────────────────
+vpn:
+  image: "ghcr.io/qdm12/gluetun:latest"
+  # Seconds between VPN server rotations (0 = off).
+  # Edit with: kubectl edit configmap vpn-config -n <namespace>
+  # Change takes effect on next rotation cycle — no restart needed.
+  rotationIntervalSeconds: "3600"
+  # RFC-1918 + k8s pod CIDRs that bypass the VPN tunnel.
+  # Required so Sonarr/Radarr can reach SABnzbd's ClusterIP for queue management.
+  firewallOutboundSubnets: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+  configStorageSize: "1Gi"
+
+# ── SABnzbd ───────────────────────────────────────────────────────────────────
+sabnzbd:
+  image: "lscr.io/linuxserver/sabnzbd:latest"
+  port: 8080
+  configStorageSize: "5Gi"
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "256Mi"
+    limits:
+      cpu: "2000m"
+      memory: "2Gi"
+
+# ── *arr stack ────────────────────────────────────────────────────────────────
+sonarr:
+  image: "lscr.io/linuxserver/sonarr:latest"
+  port: 8989
+  configStorageSize: "5Gi"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+
+radarr:
+  image: "lscr.io/linuxserver/radarr:latest"
+  port: 7878
+  configStorageSize: "5Gi"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+
+lidarr:
+  image: "lscr.io/linuxserver/lidarr:latest"
+  port: 8686
+  configStorageSize: "5Gi"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+
+seerr:
+  image: "lscr.io/linuxserver/overseerr:latest"
+  port: 5055
+  configStorageSize: "5Gi"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+
+tautulli:
+  image: "lscr.io/linuxserver/tautulli:latest"
+  port: 8181
+  configStorageSize: "5Gi"
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+# ── ClamAV antivirus scanning ─────────────────────────────────────────────────
+clamav:
+  enabled: true
+  image: "clamav/clamav:stable"
+  definitionsStorageSize: "2Gi"
+  maxFileSize: "500M"
+
+  # Notification platform — controls the webhook payload format
+  # Options: ntfy | discord | slack | gotify | generic
+  notificationType: "ntfy"
+
+  # false = silent on clean scans (recommended — less noise)
+  # true  = always send a result summary
+  notifyOnClean: "false"
+
+  daily:
+    schedule: "30 2 * * *"        # 2:30 AM — scans files downloaded in last 24h
+    timeZone: "America/New_York"
+
+  monthly:
+    schedule: "0 4 1 * *"         # 4:00 AM on the 1st — full library scan
+    timeZone: "America/New_York"
+    # Monthly full scan always notifies (overrides notifyOnClean above)
+    alwaysNotify: "true"

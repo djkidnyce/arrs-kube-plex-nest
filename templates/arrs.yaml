@@ -1,0 +1,129 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# *arr Deployments — Sonarr, Radarr, Lidarr
+# All mount the shared SMB media PVC + their own config PVC.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Sonarr ──────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sonarr
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: sonarr
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: sonarr
+  template:
+    metadata:
+      labels:
+        app: sonarr
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: sonarr
+          image: {{ .Values.sonarr.image }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: {{ .Values.sonarr.port }}
+          env:
+            {{- include "akpn.globalEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.sonarr.resources | nindent 12 }}
+          {{- include "akpn.httpProbes" (dict "port" .Values.sonarr.port "path" "/ping") | nindent 10 }}
+          volumeMounts:
+            {{- include "akpn.mediaVolumeMounts" . | nindent 12 }}
+      volumes:
+        {{- include "akpn.mediaVolumes" (dict "configClaim" "sonarr-config") | nindent 8 }}
+
+---
+# ── Radarr ──────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: radarr
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: radarr
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: radarr
+  template:
+    metadata:
+      labels:
+        app: radarr
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: radarr
+          image: {{ .Values.radarr.image }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: {{ .Values.radarr.port }}
+          env:
+            {{- include "akpn.globalEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.radarr.resources | nindent 12 }}
+          {{- include "akpn.httpProbes" (dict "port" .Values.radarr.port "path" "/ping") | nindent 10 }}
+          volumeMounts:
+            {{- include "akpn.mediaVolumeMounts" . | nindent 12 }}
+      volumes:
+        {{- include "akpn.mediaVolumes" (dict "configClaim" "radarr-config") | nindent 8 }}
+
+---
+# ── Lidarr ──────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lidarr
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: lidarr
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: lidarr
+  template:
+    metadata:
+      labels:
+        app: lidarr
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: lidarr
+          image: {{ .Values.lidarr.image }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: {{ .Values.lidarr.port }}
+          env:
+            {{- include "akpn.globalEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.lidarr.resources | nindent 12 }}
+          {{- include "akpn.httpProbes" (dict "port" .Values.lidarr.port "path" "/ping") | nindent 10 }}
+          volumeMounts:
+            {{- include "akpn.mediaVolumeMounts" . | nindent 12 }}
+      volumes:
+        {{- include "akpn.mediaVolumes" (dict "configClaim" "lidarr-config") | nindent 8 }}
