@@ -1,0 +1,53 @@
+name: chart-ci
+on:
+  push:
+    branches: ["main", "hardening-fixes"]
+  pull_request:
+
+jobs:
+  lint-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+
+      - name: helm lint
+        run: helm lint . --set nas.host=192.168.1.100 --strict
+
+      - name: helm template (default values)
+        run: |
+          helm template akpn . --namespace media --set nas.host=192.168.1.100 > /tmp/rendered.yaml
+          echo "--- rendered $(grep -c '^kind:' /tmp/rendered.yaml) resources"
+
+      - name: helm template (clamav disabled, 3 plex replicas)
+        run: |
+          helm template akpn . --namespace media \
+            --set nas.host=192.168.1.100 \
+            --set clamav.enabled=false \
+            --set plex.replicas=3 > /tmp/rendered-alt.yaml
+
+      - name: nas.host is required
+        run: |
+          if helm template akpn . --namespace media > /dev/null 2>&1; then
+            echo "ERROR: render succeeded without nas.host"; exit 1
+          fi
+          echo "OK: render fails without nas.host"
+
+      - name: kubeconform
+        uses: docker://ghcr.io/yannh/kubeconform:latest-alpine
+        with:
+          entrypoint: /kubeconform
+          args: "-strict -summary /tmp/rendered.yaml"
+
+      - name: shellcheck
+        run: |
+          sudo apt-get install -y shellcheck
+          shellcheck -S warning deploy.sh install-tools.sh files/scripts/*.sh
+
+      - name: offline cross-reference tests
+        run: |
+          pip install pyyaml kubernetes-validate
+          python3 tests/validate.py /tmp/rendered.yaml

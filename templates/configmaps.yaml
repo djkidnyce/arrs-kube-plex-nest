@@ -12,7 +12,6 @@ data:
   PUID: {{ .Values.global.puid | quote }}
   PGID: {{ .Values.global.pgid | quote }}
   TZ:   {{ .Values.global.timezone | quote }}
-  VERSION: "docker"
 
 ---
 # ─────────────────────────────────────────────────────────────────────────────
@@ -36,6 +35,7 @@ data:
   rotate.sh: |
 {{ .Files.Get "files/scripts/rotate.sh" | indent 4 }}
 
+{{- if .Values.clamav.enabled }}
 ---
 # ─────────────────────────────────────────────────────────────────────────────
 # ConfigMap: clamav-config — scan script + tunable parameters
@@ -55,3 +55,4 @@ data:
   MAX_FILE_SIZE: {{ .Values.clamav.maxFileSize | quote }}
   scan.sh: |
 {{ .Files.Get "files/scripts/scan.sh" | indent 4 }}
+{{- end }}

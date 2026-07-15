@@ -1,12 +1,12 @@
 apiVersion: v2
 name: arrs-kube-plex-nest
 description: >
-  Self-hosted media server stack — Plex (autoscaling), SABnzbd+VPN, Sonarr,
-  Radarr, Lidarr, Overseerr, Tautulli, ClamAV scanning with alerts.
-  SMB shares via the Kubernetes SMB CSI driver (TrueNAS compatible).
+  Self-hosted media server stack — Plex (multiple independent servers),
+  SABnzbd+VPN, Sonarr, Radarr, Lidarr, Overseerr, Tautulli, ClamAV scanning
+  with alerts. SMB shares via the Kubernetes SMB CSI driver (TrueNAS compatible).
 type: application
-version: 1.0.1
-appVersion: "2026.1"
+version: 1.1.0
+appVersion: "2026.7"
 keywords:
   - plex
   - media

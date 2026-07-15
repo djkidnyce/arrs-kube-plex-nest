@@ -22,44 +22,6 @@ spec:
       targetPort: {{ .Values.sabnzbd.port }}
 
 ---
-# SABnzbd — filebrowser UI for .ovpn file management (internal-only)
-apiVersion: v1
-kind: Service
-metadata:
-  name: sabnzbd-filebrowser
-  namespace: {{ .Release.Namespace }}
-  labels:
-    app: sabnzbd
-    {{- include "akpn.labels" . | nindent 4 }}
-spec:
-  type: ClusterIP
-  selector:
-    app: sabnzbd
-  ports:
-    - name: filebrowser
-      port: 8888
-      targetPort: 8888
-
----
-# SABnzbd — gluetun control API (for VPN status / rotation)
-apiVersion: v1
-kind: Service
-metadata:
-  name: sabnzbd-vpn
-  namespace: {{ .Release.Namespace }}
-  labels:
-    app: sabnzbd
-    {{- include "akpn.labels" . | nindent 4 }}
-spec:
-  type: ClusterIP
-  selector:
-    app: sabnzbd
-  ports:
-    - name: vpn-api
-      port: 8000
-      targetPort: 8000
-
----
 # Sonarr
 apiVersion: v1
 kind: Service

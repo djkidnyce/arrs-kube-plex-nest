@@ -25,12 +25,13 @@ spec:
     spec:
       nodeSelector:
         kubernetes.io/os: linux
-      securityContext:
-        fsGroup: 1000
+      automountServiceAccountToken: false
+      {{- include "akpn.podSecurityContext" . | nindent 6 }}
       containers:
         - name: seerr
           image: {{ .Values.seerr.image }}
           imagePullPolicy: IfNotPresent
+          {{- include "akpn.lsioContainerSecurity" . | nindent 10 }}
           ports:
             - containerPort: {{ .Values.seerr.port }}
           env:
@@ -83,12 +84,13 @@ spec:
     spec:
       nodeSelector:
         kubernetes.io/os: linux
-      securityContext:
-        fsGroup: 1000
+      automountServiceAccountToken: false
+      {{- include "akpn.podSecurityContext" . | nindent 6 }}
       containers:
         - name: tautulli
           image: {{ .Values.tautulli.image }}
           imagePullPolicy: IfNotPresent
+          {{- include "akpn.lsioContainerSecurity" . | nindent 10 }}
           ports:
             - containerPort: {{ .Values.tautulli.port }}
           env:

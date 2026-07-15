@@ -1,19 +1,12 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# Plex StatefulSet
+# Plex StatefulSet — N INDEPENDENT Plex servers
 #
-# WHY StatefulSet + volumeClaimTemplates (not Deployment + shared PVC):
-#   Each autoscaled replica needs its own /config directory. With a regular
-#   Deployment all pods would try to share one RWO PVC, which fails.
-#   StatefulSet gives each pod a dedicated PVC:
-#     plex-0 → plex-config-plex-0
-#     plex-1 → plex-config-plex-1
-#     plex-2 → plex-config-plex-2
-#   The shared media (SMB, RWX) mounts normally.
-#
-# Scaling:
-#   HPA (plex-hpa.yaml) targets this StatefulSet.
-#   Add replicas with: helm upgrade akpn . --set plex.autoscaling.maxReplicas=4
-#   Per-pod LoadBalancer services are in plex-services.yaml.
+# Plex cannot autoscale (SQLite config DB, no clustering, no session sharing),
+# so there is no HPA. `plex.replicas` runs that many separate Plex servers:
+#   plex-0 → plex-config-plex-0 → external port basePort
+#   plex-1 → plex-config-plex-1 → external port basePort+1
+# Each must be claimed and configured once; both mount the same media share.
+# Replica count is fixed and only changes via `--set plex.replicas=N`.
 # ─────────────────────────────────────────────────────────────────────────────
 apiVersion: apps/v1
 kind: StatefulSet
@@ -25,9 +18,8 @@ metadata:
     {{- include "akpn.labels" . | nindent 4 }}
 spec:
   serviceName: plex-headless
-  # minReplicas from HPA; setting this directly ensures at least 1 on first deploy
-  replicas: {{ .Values.plex.autoscaling.minReplicas }}
-  podManagementPolicy: Parallel   # start/stop all replicas simultaneously
+  replicas: {{ .Values.plex.replicas }}
+  podManagementPolicy: Parallel
   selector:
     matchLabels:
       app: plex
@@ -37,19 +29,16 @@ spec:
         app: plex
     spec:
       # Required when Windows nodes are present in the cluster.
-      # All Arrs Kube Plex Nest images are Linux — this prevents scheduling on Windows nodes.
       nodeSelector:
         kubernetes.io/os: linux
-
-      securityContext:
-        fsGroup: 1000
-
+      automountServiceAccountToken: false
+      {{- include "akpn.podSecurityContext" . | nindent 6 }}
       terminationGracePeriodSeconds: 60
-
       containers:
         - name: plex
           image: {{ .Values.plex.image }}
           imagePullPolicy: IfNotPresent
+          {{- include "akpn.lsioContainerSecurity" . | nindent 10 }}
           ports:
             - containerPort: 32400
               protocol: TCP
@@ -60,12 +49,12 @@ spec:
                 secretKeyRef:
                   name: plex-claim
                   key: token
-                  optional: true   # only needed for initial server claim
+                  optional: true   # only used while a server is unclaimed
           resources:
             {{- toYaml .Values.plex.resources | nindent 12 }}
           livenessProbe:
             httpGet:
-              path: /web/index.html
+              path: /identity
               port: 32400
             initialDelaySeconds: 60
             periodSeconds: 30
@@ -73,24 +62,19 @@ spec:
             failureThreshold: 5
           readinessProbe:
             httpGet:
-              path: /web/index.html
+              path: /identity
               port: 32400
             initialDelaySeconds: 30
             periodSeconds: 15
-            timeoutSeconds: 5
           volumeMounts:
             - name: config
               mountPath: /config
             - name: media
               mountPath: /mnt/media
-
       volumes:
         - name: media
           persistentVolumeClaim:
             claimName: media-pvc
-
-  # Each replica gets its own config PVC via this template.
-  # PVC names: plex-config-plex-0, plex-config-plex-1, …
   volumeClaimTemplates:
     - metadata:
         name: config

@@ -42,12 +42,24 @@ spec:
           restartPolicy: OnFailure
           nodeSelector:
             kubernetes.io/os: linux
+          automountServiceAccountToken: false
           securityContext:
-            runAsUser: 0    # clamav needs root to read all files
+            seccompProfile:
+              type: RuntimeDefault
+            runAsUser: 1000     # media share is mounted uid/gid 1000 (0770)
+            runAsGroup: 1000
+            runAsNonRoot: true
+            fsGroup: 1000       # definitions PVC writable for freshclam
           containers:
             - name: clamav-scanner
               image: {{ .Values.clamav.image }}
               imagePullPolicy: IfNotPresent
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                {{- toYaml .Values.clamav.resources | nindent 16 }}
               command:
                 - /bin/sh
                 - /scripts/scan.sh
@@ -92,6 +104,8 @@ spec:
                   mountPath: /var/lib/clamav
                 - name: scan-script
                   mountPath: /scripts
+                - name: tmp
+                  mountPath: /tmp
           volumes:
             - name: media
               persistentVolumeClaim:
@@ -99,13 +113,15 @@ spec:
             - name: definitions
               persistentVolumeClaim:
                 claimName: clamav-definitions
+            - name: tmp
+              emptyDir: {}
             - name: scan-script
               configMap:
                 name: clamav-config
                 items:
                   - key: scan.sh
                     path: scan.sh
-                    mode: 0755
+                    mode: 0555
 
 ---
 # ── Monthly Full Scan ─────────────────────────────────────────────────────────
@@ -135,12 +151,26 @@ spec:
             scan-type: monthly
         spec:
           restartPolicy: OnFailure
+          nodeSelector:
+            kubernetes.io/os: linux
+          automountServiceAccountToken: false
           securityContext:
-            runAsUser: 0
+            seccompProfile:
+              type: RuntimeDefault
+            runAsUser: 1000     # media share is mounted uid/gid 1000 (0770)
+            runAsGroup: 1000
+            runAsNonRoot: true
+            fsGroup: 1000       # definitions PVC writable for freshclam
           containers:
             - name: clamav-scanner
               image: {{ .Values.clamav.image }}
               imagePullPolicy: IfNotPresent
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                {{- toYaml .Values.clamav.resources | nindent 16 }}
               command:
                 - /bin/sh
                 - /scripts/scan.sh
@@ -183,6 +213,8 @@ spec:
                   mountPath: /var/lib/clamav
                 - name: scan-script
                   mountPath: /scripts
+                - name: tmp
+                  mountPath: /tmp
           volumes:
             - name: media
               persistentVolumeClaim:
@@ -190,11 +222,13 @@ spec:
             - name: definitions
               persistentVolumeClaim:
                 claimName: clamav-definitions
+            - name: tmp
+              emptyDir: {}
             - name: scan-script
               configMap:
                 name: clamav-config
                 items:
                   - key: scan.sh
                     path: scan.sh
-                    mode: 0755
+                    mode: 0555
 {{- end }}

@@ -18,7 +18,7 @@ mountOptions:
   - {{ . }}
   {{- end }}
 parameters:
-  source: "//{{ .Values.nas.host }}/{{ .Values.nas.mediaShare }}"
+  source: "//{{ required "nas.host is required — deploy with --set nas.host=<NAS IP>" .Values.nas.host }}/{{ .Values.nas.mediaShare }}"
   csi.storage.k8s.io/provisioner-secret-name: smb-credentials
   csi.storage.k8s.io/provisioner-secret-namespace: {{ .Release.Namespace }}
   csi.storage.k8s.io/node-stage-secret-name: smb-credentials
@@ -48,7 +48,7 @@ spec:
     readOnly: false
     volumeHandle: media-pv
     volumeAttributes:
-      source: "//{{ .Values.nas.host }}/{{ .Values.nas.mediaShare }}"
+      source: "//{{ required "nas.host is required — deploy with --set nas.host=<NAS IP>" .Values.nas.host }}/{{ .Values.nas.mediaShare }}"
     nodeStageSecretRef:
       name: smb-credentials
       namespace: {{ .Release.Namespace }}

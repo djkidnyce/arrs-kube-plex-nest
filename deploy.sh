@@ -16,6 +16,7 @@ RELEASE="akpn"
 CHART_DIR="$(cd "$(dirname "$0")" && pwd)"
 EXTRA_FLAGS=()
 DRY_RUN=false
+OVPN_DIR=""
 
 # Non-sensitive config persisted between runs (chmod 600, no passwords)
 CACHE_FILE="${HOME}/.akpn-deploy.conf"
@@ -25,9 +26,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -n|--namespace) NAMESPACE="$2"; shift 2 ;;
     -f|--values)    EXTRA_FLAGS+=("-f" "$2"); shift 2 ;;
+    --ovpn-dir)     OVPN_DIR="$2"; shift 2 ;;
     --dry-run)      DRY_RUN=true; shift ;;
     --help|-h)
-      echo "Usage: $0 [-n namespace] [-f values.yaml] [--dry-run]"
+      echo "Usage: $0 [-n namespace] [-f values.yaml] [--ovpn-dir /path/to/ovpns] [--dry-run]"
       exit 0 ;;
     *) echo "Unknown argument: $1"; exit 1 ;;
   esac
@@ -56,7 +58,6 @@ NAS_SHARE="${NAS_SHARE:-}"
 NAS_SHARE_SIZE="${NAS_SHARE_SIZE:-}"
 SMB_USER="${SMB_USER:-}"
 VPN_USER="${VPN_USER:-}"
-CLAMAV_WEBHOOK="${CLAMAV_WEBHOOK:-}"
 EOF
   chmod 600 "$CACHE_FILE"
   success "Config saved to ${DIM}${CACHE_FILE}${RESET} (re-runs will pre-fill these values)"
@@ -71,7 +72,7 @@ prompt_secret() {
     read -rsp "  ${prompt}: " value; echo
     [[ -z "$value" ]] && warn "Cannot be empty — try again."
   done
-  eval "$var='$value'"
+  printf -v "$var" '%s' "$value"
 }
 
 # Visible input — shows cached value, Enter keeps it
@@ -79,7 +80,7 @@ confirm_or_prompt() {
   local var="$1" prompt="$2" current="${!1:-}" required="${3:-required}"
   if [[ -n "$current" ]]; then
     read -rp "  ${prompt} ${DIM}[${current}]${RESET}: " input
-    eval "$var='${input:-$current}'"
+    printf -v "$var" '%s' "${input:-$current}"
   else
     local value=""
     while [[ -z "$value" ]]; do
@@ -87,7 +88,7 @@ confirm_or_prompt() {
       [[ -z "$value" && "$required" == "required" ]] && warn "Cannot be empty — try again."
       [[ "$required" != "required" ]] && break
     done
-    eval "$var='$value'"
+    printf -v "$var" '%s' "$value"
   fi
 }
 
@@ -98,7 +99,7 @@ prompt_or_keep_password() {
     echo -e "  ${GREEN}Secret '$k8s_secret' already exists in '$NAMESPACE'.${RESET}"
     read -rp "  Keep existing? [Y/n]: " keep
     if [[ "${keep,,}" != "n" ]]; then
-      eval "$var='__KEEP__'"
+      printf -v "$var" '%s' "__KEEP__"
       return
     fi
   fi
@@ -117,7 +118,7 @@ show_namespace_status() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-banner "1 / 6  Prerequisites"
+banner "1 / 5  Prerequisites"
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Auto-install kubectl and helm if missing
@@ -151,7 +152,7 @@ fi
 success "Cluster is reachable."
 
 # ─────────────────────────────────────────────────────────────────────────────
-banner "2 / 6  SMB CSI Driver"
+banner "2 / 5  SMB CSI Driver"
 # ─────────────────────────────────────────────────────────────────────────────
 # Note: no --wait here. CSI driver pods starting in the background is fine —
 #       the PVCs won't be claimed until pods start, which happens after deploy.
@@ -176,20 +177,7 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-banner "3 / 6  Metrics Server (for Plex HPA)"
-# ─────────────────────────────────────────────────────────────────────────────
-
-if kubectl get deployment metrics-server -n kube-system &>/dev/null 2>&1; then
-  success "metrics-server already installed."
-else
-  info "Installing metrics-server (async — HPA will show <unknown> until it's ready)..."
-  kubectl apply -f \
-    https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml \
-    2>/dev/null || warn "metrics-server apply failed — HPA won't function until fixed."
-fi
-
-# ─────────────────────────────────────────────────────────────────────────────
-banner "4 / 6  Configuration"
+banner "3 / 5  Configuration"
 # ─────────────────────────────────────────────────────────────────────────────
 
 load_cache
@@ -256,7 +244,7 @@ echo
 save_cache
 
 # ─────────────────────────────────────────────────────────────────────────────
-banner "5 / 6  Creating Secrets"
+banner "4 / 5  Creating Secrets"
 # ─────────────────────────────────────────────────────────────────────────────
 
 if $DRY_RUN; then
@@ -308,6 +296,52 @@ else
     trap - EXIT
   fi
 
+  # gluetun control-server API key (gluetun >= v3.40 requires auth)
+  if kubectl get secret gluetun-control-auth -n "$NAMESPACE" &>/dev/null 2>&1; then
+    info "gluetun-control-auth — keeping existing secret."
+  else
+    GLUETUN_KEY="$(tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 48)"
+    AUTH_TOML="$(mktemp)"
+    trap 'rm -f "$AUTH_TOML"' EXIT
+    cat > "$AUTH_TOML" <<TOML
+[[roles]]
+name = "vpn-rotator"
+routes = ["GET /v1/openvpn/status", "PUT /v1/openvpn/status"]
+auth = "apikey"
+apikey = "${GLUETUN_KEY}"
+TOML
+    kubectl create secret generic gluetun-control-auth \
+      --from-file=config.toml="$AUTH_TOML" \
+      --from-literal=apikey="$GLUETUN_KEY" \
+      --namespace="$NAMESPACE" \
+      --dry-run=client -o yaml | kubectl apply -f - \
+      && success "gluetun-control-auth created (48-char random API key)." \
+      || warn "gluetun-control-auth create failed — VPN rotation will not work."
+    rm -f "$AUTH_TOML"
+    trap - EXIT
+  fi
+
+  # .ovpn files → vpn-ovpn-configs Secret (never stored in the repo)
+  if [[ -n "$OVPN_DIR" ]]; then
+    if compgen -G "$OVPN_DIR/*.ovpn" > /dev/null; then
+      OVPN_ARGS=()
+      for f in "$OVPN_DIR"/*.ovpn; do OVPN_ARGS+=("--from-file=$f"); done
+      kubectl create secret generic vpn-ovpn-configs \
+        "${OVPN_ARGS[@]}" \
+        --namespace="$NAMESPACE" \
+        --dry-run=client -o yaml | kubectl apply -f - \
+        && success "vpn-ovpn-configs updated (${#OVPN_ARGS[@]} file(s))." \
+        || warn "vpn-ovpn-configs create failed."
+    else
+      warn "No .ovpn files found in $OVPN_DIR — skipping."
+    fi
+  elif ! kubectl get secret vpn-ovpn-configs -n "$NAMESPACE" &>/dev/null 2>&1; then
+    warn "vpn-ovpn-configs secret missing. Load your .ovpn files with:"
+    warn "  $0 --ovpn-dir /path/to/ovpn/files"
+  else
+    info "vpn-ovpn-configs — keeping existing secret."
+  fi
+
   # ClamAV webhook (always upsert — empty string is valid)
   webhook_val="${CLAMAV_WEBHOOK:-}"
   kubectl create secret generic clamav-notify \
@@ -319,7 +353,7 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-banner "6 / 6  Helm install / upgrade"
+banner "5 / 5  Helm install / upgrade"
 # ─────────────────────────────────────────────────────────────────────────────
 
 HELM_CMD=(
@@ -336,8 +370,13 @@ if $DRY_RUN; then
   HELM_CMD+=(--dry-run --debug)
   info "DRY RUN — rendering manifests only:"
 else
-  # --rollback-on-failure replaces --atomic in Helm v4
-  HELM_CMD+=(--rollback-on-failure --timeout 5m)
+  # Helm v4 renamed --atomic to --rollback-on-failure
+  HELM_MAJOR=$(helm version --template '{{.Version}}' 2>/dev/null | grep -oE '^v[0-9]+' || echo v3)
+  if [[ "$HELM_MAJOR" == "v4" ]]; then
+    HELM_CMD+=(--rollback-on-failure --timeout 5m)
+  else
+    HELM_CMD+=(--atomic --timeout 5m)
+  fi
 fi
 
 info "Running: ${HELM_CMD[*]}"
@@ -349,15 +388,13 @@ if "${HELM_CMD[@]}"; then
     echo
     show_namespace_status
     echo -e "  ${BOLD}Next steps:${RESET}"
-    echo "  1. Upload .ovpn file via filebrowser:"
-    echo "       kubectl port-forward svc/sabnzbd-filebrowser 8888:8888 -n $NAMESPACE"
-    echo "       → open http://localhost:8888  (login: admin / admin — change it!)"
-    echo "  2. Restart SABnzbd after .ovpn upload:"
+    echo "  1. If you haven't loaded .ovpn files yet:"
+    echo "       $0 --ovpn-dir /path/to/ovpn/files"
     echo "       kubectl rollout restart deployment/sabnzbd -n $NAMESPACE"
-    echo "  3. Get service IPs:"
+    echo "  2. Get service IPs:"
     echo "       kubectl get svc -n $NAMESPACE"
-    echo "  4. Watch Plex autoscaling:"
-    echo "       kubectl get hpa plex-hpa -n $NAMESPACE -w"
+    echo "  3. Claim EACH Plex server separately (see NOTES):"
+    echo "       helm get notes akpn -n $NAMESPACE"
   fi
 else
   echo

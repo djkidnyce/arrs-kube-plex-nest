@@ -32,38 +32,6 @@ spec:
       storage: {{ .size }}
 {{- end }}
 
----
-# VPN .ovpn file storage — uploaded via filebrowser UI
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: vpn-configs
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "akpn.labels" . | nindent 4 }}
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: {{ .Values.vpn.configStorageSize }}
-
----
-# filebrowser database (admin UI for uploading .ovpn files)
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: filebrowser-db
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "akpn.labels" . | nindent 4 }}
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: "256Mi"
-
 {{- if .Values.clamav.enabled }}
 ---
 # ClamAV virus definition database

@@ -26,12 +26,13 @@ spec:
     spec:
       nodeSelector:
         kubernetes.io/os: linux
-      securityContext:
-        fsGroup: 1000
+      automountServiceAccountToken: false
+      {{- include "akpn.podSecurityContext" . | nindent 6 }}
       containers:
         - name: sonarr
           image: {{ .Values.sonarr.image }}
           imagePullPolicy: IfNotPresent
+          {{- include "akpn.lsioContainerSecurity" . | nindent 10 }}
           ports:
             - containerPort: {{ .Values.sonarr.port }}
           env:
@@ -68,12 +69,13 @@ spec:
     spec:
       nodeSelector:
         kubernetes.io/os: linux
-      securityContext:
-        fsGroup: 1000
+      automountServiceAccountToken: false
+      {{- include "akpn.podSecurityContext" . | nindent 6 }}
       containers:
         - name: radarr
           image: {{ .Values.radarr.image }}
           imagePullPolicy: IfNotPresent
+          {{- include "akpn.lsioContainerSecurity" . | nindent 10 }}
           ports:
             - containerPort: {{ .Values.radarr.port }}
           env:
@@ -110,12 +112,13 @@ spec:
     spec:
       nodeSelector:
         kubernetes.io/os: linux
-      securityContext:
-        fsGroup: 1000
+      automountServiceAccountToken: false
+      {{- include "akpn.podSecurityContext" . | nindent 6 }}
       containers:
         - name: lidarr
           image: {{ .Values.lidarr.image }}
           imagePullPolicy: IfNotPresent
+          {{- include "akpn.lsioContainerSecurity" . | nindent 10 }}
           ports:
             - containerPort: {{ .Values.lidarr.port }}
           env:

@@ -29,6 +29,43 @@ Standard LSIO environment variables pulled from the global ConfigMap.
 {{- end }}
 
 {{/*
+Pod-level security defaults. LSIO images start as root (s6 init) then drop
+to PUID/PGID, so runAsNonRoot cannot be set pod-wide for those pods.
+*/}}
+{{- define "akpn.podSecurityContext" -}}
+securityContext:
+  seccompProfile:
+    type: RuntimeDefault
+  fsGroup: 1000
+{{- end }}
+
+{{/*
+Container security for LSIO images: drop everything except the capabilities
+the s6 init needs to chown /config and setuid to PUID/PGID.
+*/}}
+{{- define "akpn.lsioContainerSecurity" -}}
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+    add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "FSETID", "KILL", "SETGID", "SETUID", "SETPCAP", "NET_BIND_SERVICE"]
+{{- end }}
+
+{{/*
+Container security for fully unprivileged sidecars/init containers.
+*/}}
+{{- define "akpn.restrictedContainerSecurity" -}}
+securityContext:
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+{{- end }}
+
+{{/*
 Standard media + config volumeMounts used by *arr services.
 */}}
 {{- define "akpn.mediaVolumeMounts" -}}
@@ -40,7 +77,6 @@ Standard media + config volumeMounts used by *arr services.
 
 {{/*
 Standard volumes block for a service that uses a config PVC + shared media PVC.
-Usage: pass the PVC claim name as the first argument via dict.
   {{ include "akpn.mediaVolumes" (dict "configClaim" "sonarr-config") }}
 */}}
 {{- define "akpn.mediaVolumes" -}}
@@ -54,7 +90,6 @@ Usage: pass the PVC claim name as the first argument via dict.
 
 {{/*
 Standard liveness / readiness probes for *arr HTTP services.
-Expects .port and .path to be passed via dict.
   {{ include "akpn.httpProbes" (dict "port" 8989 "path" "/ping") }}
 */}}
 {{- define "akpn.httpProbes" -}}
@@ -73,4 +108,3 @@ readinessProbe:
   initialDelaySeconds: 15
   periodSeconds: 10
 {{- end }}
-

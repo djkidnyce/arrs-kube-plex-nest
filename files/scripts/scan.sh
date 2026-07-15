@@ -45,8 +45,9 @@ echo " Start: $(date)"
 echo "=============================="
 echo ""
 echo "[freshclam] Updating definitions..."
-freshclam --datadir="$DB_PATH" 2>&1 | grep -v "^$" | tail -10
-if [ $? -ne 0 ]; then echo "[freshclam] WARNING: update failed — using existing defs."; fi
+FRESH_LOG=$(freshclam --datadir="$DB_PATH" 2>&1); FRESH_RC=$?
+printf '%s\n' "$FRESH_LOG" | grep -v "^$" | tail -10
+if [ "$FRESH_RC" -ne 0 ]; then echo "[freshclam] WARNING: update failed (exit $FRESH_RC) — using existing defs."; fi
 
 echo ""
 if [ "$SCAN_TYPE" = "quick" ]; then
@@ -77,7 +78,7 @@ SCAN_OUTPUT=$(clamscan \
   --max-scansize=1000M \
   --stdout 2>&1)
 EXIT_CODE=$?
-INFECTED=$(printf '%s' "$SCAN_OUTPUT" | grep -c "FOUND" 2>/dev/null || echo "0")
+INFECTED=$(printf '%s' "$SCAN_OUTPUT" | grep -c "FOUND"); [ -z "$INFECTED" ] && INFECTED=0
 LABEL=$([ "$SCAN_TYPE" = "quick" ] && echo "Daily Quick" || echo "Monthly Full")
 echo "[scan] Exit: $EXIT_CODE | Infected: $INFECTED"
 echo ""

@@ -28,6 +28,7 @@
 param(
     [string]$Namespace  = "media",
     [string]$ValuesFile = "",
+    [string]$OvpnDir    = "",
     [switch]$DryRun
 )
 
@@ -52,7 +53,6 @@ $Cache = @{
     NAS_SHARE_SIZE = "10Ti"
     SMB_USER       = ""
     VPN_USER       = ""
-    CLAMAV_WEBHOOK = ""
 }
 
 function Load-Cache {
@@ -130,7 +130,7 @@ if ($env:PATH -notmatch 'C:\\tools') {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-Write-Banner "1 / 6  Prerequisites"
+Write-Banner "1 / 5  Prerequisites"
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Auto-install kubectl and helm if missing
@@ -165,7 +165,7 @@ if ($LASTEXITCODE -ne 0) { Fatal "Cannot reach cluster. Check: kubectl config ge
 Write-Ok "Cluster is reachable."
 
 # ─────────────────────────────────────────────────────────────────────────────
-Write-Banner "2 / 6  SMB CSI Driver"
+Write-Banner "2 / 5  SMB CSI Driver"
 # ─────────────────────────────────────────────────────────────────────────────
 # No --wait — CSI driver runs async. PVCs bind once it's ready, not before.
 
@@ -189,20 +189,7 @@ if ($LASTEXITCODE -eq 0) {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-Write-Banner "3 / 6  Metrics Server (for Plex HPA)"
-# ─────────────────────────────────────────────────────────────────────────────
-
-kubectl get deployment metrics-server -n kube-system 2>$null | Out-Null
-if ($LASTEXITCODE -eq 0) {
-    Write-Ok "metrics-server already installed."
-} else {
-    Write-Info "Installing metrics-server (async — HPA shows <unknown> until ready)..."
-    kubectl apply -f "https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml" 2>$null
-    if ($LASTEXITCODE -ne 0) { Write-Warn "metrics-server apply failed — HPA won't function until fixed." }
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
-Write-Banner "4 / 6  Configuration"
+Write-Banner "3 / 5  Configuration"
 # ─────────────────────────────────────────────────────────────────────────────
 
 Load-Cache
@@ -255,14 +242,14 @@ Write-Host ""
 # ── ClamAV webhook ────────────────────────────────────────────────────────────
 Write-Host "  ClamAV Webhook URL" -ForegroundColor White
 Write-Host "  Leave blank to disable scan alerts."
-$Cache["CLAMAV_WEBHOOK"] = Read-OrKeep "Webhook URL" $Cache["CLAMAV_WEBHOOK"] ""
+$ClamavWebhook = Read-Host "  Webhook URL (blank to disable)"
 Write-Host ""
 
 # Save non-sensitive values
 Save-Cache
 
 # ─────────────────────────────────────────────────────────────────────────────
-Write-Banner "5 / 6  Creating Secrets"
+Write-Banner "4 / 5  Creating Secrets"
 # ─────────────────────────────────────────────────────────────────────────────
 
 if ($DryRun) {
@@ -314,8 +301,58 @@ if ($DryRun) {
         }
     }
 
+    # gluetun control-server API key (gluetun >= v3.40 requires auth)
+    kubectl get secret gluetun-control-auth -n $Namespace 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Info "gluetun-control-auth — keeping existing secret."
+    } else {
+        $chars = [char[]]([char]'a'..[char]'z') + [char[]]([char]'A'..[char]'Z') + [char[]]([char]'0'..[char]'9')
+        $GluetunKey = -join (1..48 | ForEach-Object { $chars | Get-Random })
+        $TempToml = [System.IO.Path]::GetTempFileName()
+        try {
+            @"
+[[roles]]
+name = "vpn-rotator"
+routes = ["GET /v1/openvpn/status", "PUT /v1/openvpn/status"]
+auth = "apikey"
+apikey = "$GluetunKey"
+"@ | Set-Content -Path $TempToml -Encoding UTF8
+            kubectl create secret generic gluetun-control-auth `
+                "--from-file=config.toml=$TempToml" `
+                "--from-literal=apikey=$GluetunKey" `
+                "--namespace=$Namespace" `
+                "--dry-run=client" "-o" "yaml" 2>$null | kubectl apply -f - 2>$null | Out-Null
+            if ($LASTEXITCODE -eq 0) { Write-Ok "gluetun-control-auth created (48-char random API key)." }
+            else { Write-Warn "gluetun-control-auth create failed — VPN rotation will not work." }
+        } finally {
+            Remove-Item $TempToml -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    # .ovpn files → vpn-ovpn-configs Secret (never stored in the repo)
+    if ($OvpnDir) {
+        $ovpnFiles = Get-ChildItem -Path $OvpnDir -Filter *.ovpn -ErrorAction SilentlyContinue
+        if ($ovpnFiles) {
+            $ovpnArgs = @("create", "secret", "generic", "vpn-ovpn-configs")
+            foreach ($f in $ovpnFiles) { $ovpnArgs += "--from-file=$($f.FullName)" }
+            $ovpnArgs += @("--namespace=$Namespace", "--dry-run=client", "-o", "yaml")
+            & kubectl @ovpnArgs 2>$null | kubectl apply -f - 2>$null | Out-Null
+            if ($LASTEXITCODE -eq 0) { Write-Ok "vpn-ovpn-configs updated ($($ovpnFiles.Count) file(s))." }
+            else { Write-Warn "vpn-ovpn-configs create failed." }
+        } else {
+            Write-Warn "No .ovpn files found in $OvpnDir — skipping."
+        }
+    } else {
+        kubectl get secret vpn-ovpn-configs -n $Namespace 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "vpn-ovpn-configs secret missing. Load .ovpn files with: .\deploy.ps1 -OvpnDir C:\path\to\ovpns"
+        } else {
+            Write-Info "vpn-ovpn-configs — keeping existing secret."
+        }
+    }
+
     # clamav-notify (always upsert)
-    $webhookVal = $Cache["CLAMAV_WEBHOOK"]
+    $webhookVal = $ClamavWebhook
     kubectl create secret generic clamav-notify `
         "--from-literal=webhook-url=$webhookVal" `
         "--namespace=$Namespace" `
@@ -325,7 +362,7 @@ if ($DryRun) {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-Write-Banner "6 / 6  Helm install / upgrade"
+Write-Banner "5 / 5  Helm install / upgrade"
 # ─────────────────────────────────────────────────────────────────────────────
 
 $HelmArgs = @(
@@ -343,8 +380,10 @@ if ($DryRun) {
     $HelmArgs += @("--dry-run", "--debug")
     Write-Info "DRY RUN — rendering manifests only."
 } else {
-    # --rollback-on-failure replaces --atomic in Helm v4
-    $HelmArgs += @("--rollback-on-failure", "--timeout", "5m")
+    # Helm v4 renamed --atomic to --rollback-on-failure
+    $HelmVer = (& helm version --template '{{.Version}}' 2>$null)
+    if ($HelmVer -match '^v4') { $HelmArgs += @("--rollback-on-failure", "--timeout", "5m") }
+    else { $HelmArgs += @("--atomic", "--timeout", "5m") }
 }
 
 Write-Info "Running: helm $($HelmArgs -join ' ')"
@@ -357,13 +396,12 @@ if ($helmExit -eq 0 -and -not $DryRun) {
     Write-Host ""
     Show-NamespaceStatus
     Write-Host "  Next steps:" -ForegroundColor White
-    Write-Host "  1. Upload .ovpn file via filebrowser:"
-    Write-Host "       kubectl port-forward svc/sabnzbd-filebrowser 8888:8888 -n $Namespace"
-    Write-Host "       Then open http://localhost:8888  (default login: admin / admin)"
-    Write-Host "  2. Restart SABnzbd after .ovpn upload:"
+    Write-Host "  1. If you haven't loaded .ovpn files yet:"
+    Write-Host "       .\deploy.ps1 -OvpnDir C:\path\to\ovpns"
     Write-Host "       kubectl rollout restart deployment/sabnzbd -n $Namespace"
-    Write-Host "  3. Get service IPs: kubectl get svc -n $Namespace"
-    Write-Host "  4. Watch HPA:       kubectl get hpa plex-hpa -n $Namespace -w"
+    Write-Host "  2. Get service IPs: kubectl get svc -n $Namespace"
+    Write-Host "  3. Claim EACH Plex server separately (see NOTES):"
+    Write-Host "       helm get notes akpn -n $Namespace"
 } elseif ($helmExit -ne 0) {
     Write-Host ""
     Write-Err "Helm deploy failed (exit $helmExit). Current cluster state:"

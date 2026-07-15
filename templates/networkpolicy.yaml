@@ -1,13 +1,20 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# NetworkPolicies
+# NetworkPolicies — per-app segmentation
 #
-# Default: deny all ingress to every pod in the namespace.
-# Exceptions:
-#   1. All pods can talk to each other within the namespace (intra-namespace).
-#   2. Plex pods accept external ingress on their assigned ports.
-#   3. Overseerr accepts external ingress on port 5055.
+# Default: deny all ingress to every pod in the namespace. Each allowed flow
+# is then whitelisted explicitly:
+#   plex      ← anywhere            :32400  (LoadBalancer / clients / tautulli / seerr)
+#   seerr     ← anywhere            :5055   (LoadBalancer / users)
+#   sabnzbd   ← sonarr/radarr/lidarr:8080   (queue management)
+#   *arrs     ← seerr               :8989/:7878/:8686 (request handoff)
 #
-# Egress is unrestricted (gluetun's iptables already enforce VPN for SABnzbd).
+# NOT reachable from other pods (by design):
+#   gluetun control API :8000 — the rotator talks to it over localhost
+#   tautulli / sabnzbd / *arr web UIs — use kubectl port-forward
+#     (port-forward traffic enters via the kubelet and is not blocked by
+#      NetworkPolicy on mainstream CNIs)
+#
+# Egress is unrestricted (gluetun's kill-switch already constrains SABnzbd).
 # ─────────────────────────────────────────────────────────────────────────────
 
 # 1. Default-deny all ingress
@@ -19,34 +26,12 @@ metadata:
   labels:
     {{- include "akpn.labels" . | nindent 4 }}
 spec:
-  podSelector: {}   # applies to all pods in namespace
-  policyTypes:
-    - Ingress
-  # No ingress rules → deny everything by default
-
----
-# 2. Allow all pods to talk to each other within the namespace
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-intra-namespace
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "akpn.labels" . | nindent 4 }}
-spec:
   podSelector: {}
   policyTypes:
     - Ingress
-  ingress:
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: {{ .Release.Namespace }}
 
 ---
-# 3. Allow external ingress to Plex pods
-#    One policy covers all plex-* pods; each has its own LB service.
-{{- $basePort := .Values.plex.basePort | int }}
+# 2. Plex — external ingress on 32400 (also covers tautulli/seerr → plex)
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -67,7 +52,7 @@ spec:
           port: 32400
 
 ---
-# 4. Allow external ingress to Overseerr
+# 3. Overseerr — external ingress on 5055
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -86,3 +71,60 @@ spec:
     - ports:
         - protocol: TCP
           port: {{ .Values.seerr.port }}
+
+---
+# 4. SABnzbd — only the *arrs may reach the download API
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sabnzbd-from-arrs
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: sabnzbd
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: sabnzbd
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: ["sonarr", "radarr", "lidarr"]
+      ports:
+        - protocol: TCP
+          port: {{ .Values.sabnzbd.port }}
+
+---
+# 5. *arrs — Overseerr may reach their APIs
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: arrs-from-seerr
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: ["sonarr", "radarr", "lidarr"]
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: seerr
+      ports:
+        - protocol: TCP
+          port: {{ .Values.sonarr.port }}
+        - protocol: TCP
+          port: {{ .Values.radarr.port }}
+        - protocol: TCP
+          port: {{ .Values.lidarr.port }}

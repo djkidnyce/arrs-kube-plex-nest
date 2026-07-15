@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["global", "nas", "plex", "vpn", "sabnzbd", "sonarr", "radarr", "lidarr", "seerr", "tautulli", "clamav"],
+  "properties": {
+    "global": {
+      "type": "object",
+      "required": ["puid", "pgid", "timezone"],
+      "properties": {
+        "puid": {"type": "string", "pattern": "^[0-9]+$"},
+        "pgid": {"type": "string", "pattern": "^[0-9]+$"},
+        "timezone": {"type": "string", "minLength": 1}
+      }
+    },
+    "nas": {
+      "type": "object",
+      "required": ["host", "mediaShare", "mountOptions", "mediaShareSize"],
+      "properties": {
+        "host": {"type": "string"},
+        "mediaShare": {"type": "string", "minLength": 1},
+        "mountOptions": {"type": "array", "items": {"type": "string"}},
+        "mediaShareSize": {"type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?(Ei|Pi|Ti|Gi|Mi|Ki|E|P|T|G|M|K)?$"}
+      }
+    },
+    "plex": {
+      "type": "object",
+      "required": ["image", "basePort", "replicas", "configStorageSize"],
+      "properties": {
+        "image": {"type": "string", "not": {"pattern": ":latest$"}},
+        "basePort": {"type": "integer", "minimum": 1024, "maximum": 65535},
+        "replicas": {"type": "integer", "minimum": 1, "maximum": 10},
+        "configStorageSize": {"type": "string"}
+      }
+    },
+    "vpn": {
+      "type": "object",
+      "required": ["image", "rotationIntervalSeconds", "firewallOutboundSubnets", "controlAuthSecret", "ovpnSecret"],
+      "properties": {
+        "image": {"type": "string", "not": {"pattern": ":latest$"}},
+        "rotationIntervalSeconds": {"type": "string", "pattern": "^[0-9]+$"}
+      }
+    },
+    "clamav": {
+      "type": "object",
+      "required": ["enabled", "image"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "image": {"type": "string", "not": {"pattern": ":latest$"}}
+      }
+    }
+  }
+}

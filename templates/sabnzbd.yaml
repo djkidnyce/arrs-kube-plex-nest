@@ -1,17 +1,24 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# SABnzbd Deployment — 4-container pod with VPN
+# SABnzbd Deployment — 3-container pod with VPN
 #
 # Container layout (all share the same network namespace):
-#   init: patch-ovpn-creds  — copies .ovpn files to emptyDir, rewrites
-#                              auth-user-pass to /vpn/auth/openvpn.cred
+#   init: patch-ovpn-creds  — copies .ovpn files from the vpn-ovpn-configs
+#                              Secret to emptyDir, rewrites auth-user-pass to
+#                              /vpn/auth/openvpn.cred
 #   1. gluetun              — VPN (NET_ADMIN), creates tun0, enforces kill-switch
 #   2. sabnzbd              — download client; all traffic goes via gluetun
-#   3. vpn-rotator          — shell loop that calls gluetun API to cycle server
-#   4. filebrowser          — web UI for uploading .ovpn files (port 8888)
+#   3. vpn-rotator          — calls gluetun control API (apikey auth) to cycle server
 #
-# Kill-switch: gluetun's iptables rules block ALL egress except FIREWALL_OUTBOUND_SUBNETS.
-# That subnet list includes RFC-1918 ranges so Sonarr/Radarr can reach SABnzbd
-# via its ClusterIP without going through the VPN tunnel.
+# .ovpn files are loaded at deploy time: ./deploy.sh --ovpn-dir /path/to/ovpns
+# (they are stored only in the vpn-ovpn-configs Secret, never in the repo).
+#
+# Kill-switch: gluetun's iptables rules block ALL egress except
+# FIREWALL_OUTBOUND_SUBNETS (RFC-1918, so the *arrs can reach SABnzbd's
+# ClusterIP without going through the tunnel).
+#
+# gluetun >= v3.40 requires control-server auth: the config.toml with an
+# apikey role is mounted from the gluetun-control-auth Secret (deploy.sh
+# generates it).
 # ─────────────────────────────────────────────────────────────────────────────
 apiVersion: apps/v1
 kind: Deployment
@@ -33,18 +40,17 @@ spec:
       labels:
         app: sabnzbd
     spec:
-      # Required when Windows nodes are present in the cluster.
       nodeSelector:
         kubernetes.io/os: linux
-
-      securityContext:
-        fsGroup: 1000
+      automountServiceAccountToken: false
+      {{- include "akpn.podSecurityContext" . | nindent 6 }}
 
       # ── Init: patch .ovpn credential paths ──────────────────────────────
       initContainers:
         - name: patch-ovpn-creds
-          image: busybox:latest
+          image: {{ .Values.initImage }}
           imagePullPolicy: IfNotPresent
+          {{- include "akpn.restrictedContainerSecurity" . | nindent 10 }}
           command:
             - /bin/sh
             - -c
@@ -53,14 +59,21 @@ spec:
               echo "[init] Copying and patching .ovpn files..."
               count=0
               for f in /source/*.ovpn; do
-                [ -f "$f" ] || { echo "[init] No .ovpn files found in /source — skipping."; break; }
+                [ -f "$f" ] || { echo "[init] No .ovpn files found — did you run deploy.sh --ovpn-dir?"; break; }
                 base=$(basename "$f")
-                sed 's|^auth-user-pass .*|auth-user-pass /vpn/auth/openvpn.cred|g' \
+                sed 's|^auth-user-pass.*|auth-user-pass /vpn/auth/openvpn.cred|g' \
                     "$f" > "/patched/$base"
                 echo "[init] Patched: $base"
                 count=$((count + 1))
               done
               echo "[init] Done — $count file(s) patched."
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "16Mi"
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
           volumeMounts:
             - name: vpn-configs
               mountPath: /source
@@ -74,9 +87,10 @@ spec:
           image: {{ .Values.vpn.image }}
           imagePullPolicy: IfNotPresent
           securityContext:
+            allowPrivilegeEscalation: false
             capabilities:
-              add:
-                - NET_ADMIN
+              drop: ["ALL"]
+              add: ["NET_ADMIN"]
           env:
             - name: VPN_SERVICE_PROVIDER
               value: "custom"
@@ -84,21 +98,9 @@ spec:
               value: "openvpn"
             - name: OPENVPN_CUSTOM_CONFIG
               value: "/gluetun/patched-configs"
-            # OPENVPN_USER / OPENVPN_PASSWORD are optional — the credential
-            # file at /vpn/auth/openvpn.cred is the primary auth mechanism
-            # (rewritten from auth-user-pass by the init container above).
-            - name: OPENVPN_USER
-              valueFrom:
-                secretKeyRef:
-                  name: vpn-credentials
-                  key: openvpn.cred
-                  optional: true
-            - name: OPENVPN_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: vpn-credentials
-                  key: openvpn.cred
-                  optional: true
+            # Auth comes from the credential file referenced by auth-user-pass
+            # (rewritten by the init container). Do NOT set OPENVPN_USER /
+            # OPENVPN_PASSWORD here — they would override the file.
             - name: FIREWALL_OUTBOUND_SUBNETS
               valueFrom:
                 configMapKeyRef:
@@ -106,12 +108,19 @@ spec:
                   key: firewall-outbound-subnets
             - name: HTTP_CONTROL_SERVER_ADDRESS
               value: ":8000"
+            - name: HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH
+              value: "/gluetun/auth/config.toml"
+          resources:
+            {{- toYaml .Values.vpn.resources | nindent 12 }}
           volumeMounts:
             - name: patched-configs
               mountPath: /gluetun/patched-configs
               readOnly: true
             - name: vpn-cred-file
               mountPath: /vpn/auth
+              readOnly: true
+            - name: control-auth
+              mountPath: /gluetun/auth
               readOnly: true
             - name: tun-device
               mountPath: /dev/net/tun
@@ -120,6 +129,7 @@ spec:
         - name: sabnzbd
           image: {{ .Values.sabnzbd.image }}
           imagePullPolicy: IfNotPresent
+          {{- include "akpn.lsioContainerSecurity" . | nindent 10 }}
           ports:
             - containerPort: {{ .Values.sabnzbd.port }}
           env:
@@ -148,33 +158,25 @@ spec:
 
         # ── 3. VPN Rotator ────────────────────────────────────────────────
         - name: vpn-rotator
-          image: curlimages/curl:latest
+          image: {{ .Values.vpnRotator.image }}
           imagePullPolicy: IfNotPresent
+          {{- include "akpn.restrictedContainerSecurity" . | nindent 10 }}
           command:
             - /bin/sh
             - /scripts/rotate.sh
+          env:
+            - name: GLUETUN_APIKEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.vpn.controlAuthSecret }}
+                  key: apikey
+          resources:
+            {{- toYaml .Values.vpnRotator.resources | nindent 12 }}
           volumeMounts:
             - name: vpn-rotation-interval
               mountPath: /etc/vpn-rotation
             - name: vpn-rotation-script
               mountPath: /scripts
-
-        # ── 4. filebrowser (.ovpn upload UI) ─────────────────────────────
-        - name: filebrowser
-          image: filebrowser/filebrowser:latest
-          imagePullPolicy: IfNotPresent
-          args:
-            - "--root=/srv"
-            - "--port=8888"
-            - "--database=/database/filebrowser.db"
-            - "--log=/dev/stdout"
-          ports:
-            - containerPort: 8888
-          volumeMounts:
-            - name: vpn-configs
-              mountPath: /srv
-            - name: filebrowser-db
-              mountPath: /database
 
       # ── Volumes ──────────────────────────────────────────────────────────
       volumes:
@@ -185,8 +187,10 @@ spec:
           persistentVolumeClaim:
             claimName: media-pvc
         - name: vpn-configs
-          persistentVolumeClaim:
-            claimName: vpn-configs
+          secret:
+            secretName: {{ .Values.vpn.ovpnSecret }}
+            optional: true    # pod starts without it; gluetun waits for configs
+            defaultMode: 0440
         - name: patched-configs
           emptyDir: {}
         - name: vpn-cred-file
@@ -195,10 +199,14 @@ spec:
             items:
               - key: openvpn.cred
                 path: openvpn.cred
-                mode: 0400
-        - name: filebrowser-db
-          persistentVolumeClaim:
-            claimName: filebrowser-db
+                mode: 0440
+        - name: control-auth
+          secret:
+            secretName: {{ .Values.vpn.controlAuthSecret }}
+            items:
+              - key: config.toml
+                path: config.toml
+                mode: 0440
         - name: tun-device
           hostPath:
             path: /dev/net/tun
@@ -215,4 +223,4 @@ spec:
             items:
               - key: rotate.sh
                 path: rotate.sh
-                mode: 0755
+                mode: 0555

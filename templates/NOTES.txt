@@ -1,43 +1,44 @@
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║                    Arrs Kube Plex Nest  ✓  deployed to {{ .Release.Namespace }}                    ║
+║              Arrs Kube Plex Nest  ✓  deployed to {{ .Release.Namespace }}
 ╚══════════════════════════════════════════════════════════════════════════════╝
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   SERVICES  (get IPs: kubectl get svc -n {{ .Release.Namespace }})
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  Plex (autoscaled, {{ .Values.plex.autoscaling.minReplicas }}–{{ .Values.plex.autoscaling.maxReplicas }} replicas):
-{{- range $i := until (.Values.plex.autoscaling.maxReplicas | int) }}
+  Plex ({{ .Values.plex.replicas }} independent servers — NOT autoscaled; Plex cannot cluster):
+{{- range $i := until (.Values.plex.replicas | int) }}
     plex-{{ $i }}  →  <LB-IP>:{{ add $.Values.plex.basePort $i }}
 {{- end }}
 
   Overseerr (requests):    <LB-IP>:{{ .Values.seerr.port }}
 
   Internal ClusterIP only (port-forward to access):
-    SABnzbd              kubectl port-forward svc/sabnzbd 8080:{{ .Values.sabnzbd.port }} -n {{ .Release.Namespace }}
-    SABnzbd filebrowser  kubectl port-forward svc/sabnzbd-filebrowser 8888:8888 -n {{ .Release.Namespace }}
-    SABnzbd VPN API      kubectl port-forward svc/sabnzbd-vpn 8000:8000 -n {{ .Release.Namespace }}
-    Sonarr               kubectl port-forward svc/sonarr 8989:{{ .Values.sonarr.port }} -n {{ .Release.Namespace }}
-    Radarr               kubectl port-forward svc/radarr 7878:{{ .Values.radarr.port }} -n {{ .Release.Namespace }}
-    Lidarr               kubectl port-forward svc/lidarr 8686:{{ .Values.lidarr.port }} -n {{ .Release.Namespace }}
-    Tautulli             kubectl port-forward svc/tautulli 8181:{{ .Values.tautulli.port }} -n {{ .Release.Namespace }}
+    SABnzbd    kubectl port-forward svc/sabnzbd 8080:{{ .Values.sabnzbd.port }} -n {{ .Release.Namespace }}
+    Sonarr     kubectl port-forward svc/sonarr 8989:{{ .Values.sonarr.port }} -n {{ .Release.Namespace }}
+    Radarr     kubectl port-forward svc/radarr 7878:{{ .Values.radarr.port }} -n {{ .Release.Namespace }}
+    Lidarr     kubectl port-forward svc/lidarr 8686:{{ .Values.lidarr.port }} -n {{ .Release.Namespace }}
+    Tautulli   kubectl port-forward svc/tautulli 8181:{{ .Values.tautulli.port }} -n {{ .Release.Namespace }}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   FIRST-TIME SETUP
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-1. Upload .ovpn file(s) via filebrowser (default admin/admin — change password!):
-     kubectl port-forward svc/sabnzbd-filebrowser 8888:8888 -n {{ .Release.Namespace }}
-     open http://localhost:8888
-
-2. Restart SABnzbd pod to trigger init-container re-patch after upload:
+1. .ovpn files: if you didn't pass --ovpn-dir to deploy.sh, load them now:
+     ./deploy.sh --ovpn-dir /path/to/ovpn/files
+   then restart SABnzbd:
      kubectl rollout restart deployment/sabnzbd -n {{ .Release.Namespace }}
 
-3. Claim your Plex server (visit plex-0's IP on port {{ .Values.plex.basePort }}).
-   The PLEX_CLAIM token is valid for 4 minutes — get a fresh one at:
-     https://plex.tv/claim
+2. Claim each Plex server SEPARATELY (tokens are single-use, 4-minute expiry):
+     a. Get a token at https://plex.tv/claim
+     b. kubectl create secret generic plex-claim --from-literal=token=<TOKEN> \
+          -n {{ .Release.Namespace }} --dry-run=client -o yaml | kubectl apply -f -
+     c. kubectl delete pod plex-0 -n {{ .Release.Namespace }}   (claims on restart)
+     d. Repeat a–c for plex-1 (fresh token, delete pod plex-1)
+   Remote access for plex-1+: set the custom public port ({{ .Values.plex.basePort }}+N)
+   in that server's Settings → Remote Access.
 
-4. Configure SABnzbd connection in Sonarr/Radarr:
+3. Configure SABnzbd connection in Sonarr/Radarr/Lidarr:
      Host:     sabnzbd.{{ .Release.Namespace }}.svc.cluster.local
      Port:     {{ .Values.sabnzbd.port }}
      API Key:  (from SABnzbd Settings → General)
@@ -50,6 +51,8 @@
   Change on-the-fly (no pod restart):
     kubectl edit configmap vpn-config -n {{ .Release.Namespace }}
     # set rotation-interval-seconds to new value, or "0" to disable
+  The gluetun control API requires an API key (gluetun-control-auth Secret);
+  the rotator container receives it automatically.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   CLAMAV SCANNING
@@ -70,13 +73,11 @@
 {{- end }}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  PLEX AUTOSCALING  ({{ .Values.plex.autoscaling.minReplicas }}–{{ .Values.plex.autoscaling.maxReplicas }} replicas, CPU target {{ .Values.plex.autoscaling.targetCPUUtilizationPercentage }}%)
+  SECURITY NOTES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  kubectl get hpa plex-hpa -n {{ .Release.Namespace }}
-  kubectl describe hpa plex-hpa -n {{ .Release.Namespace }}
-
-  Requires metrics-server:
-    kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  • All ingress is default-deny; only Plex (32400) and Overseerr (5055) accept
+    external traffic. Web UIs are reached via kubectl port-forward.
+  • gluetun's control API (8000) is localhost-only inside the pod and
+    API-key authenticated.
+  • Secrets are created imperatively by deploy.sh — never stored in the chart.

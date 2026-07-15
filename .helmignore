@@ -1,0 +1,12 @@
+.git/
+.github/
+.gitignore
+*.md
+tests/
+deploy.sh
+deploy.ps1
+install-tools.sh
+install-tools.ps1
+setup-guide.html
+*.tgz
+.DS_Store
