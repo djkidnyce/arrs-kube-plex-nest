@@ -37,6 +37,11 @@
      d. Repeat a–c for plex-1 (fresh token, delete pod plex-1)
    Remote access for plex-1+: set the custom public port ({{ .Values.plex.basePort }}+N)
    in that server's Settings → Remote Access.
+{{- if gt (.Values.plex.replicas | int) 1 }}
+   NOTE: claim tokens expire in ~4 minutes and are single-use. A replica that
+   started without a valid token runs fine but shows as "unclaimed" until you
+   repeat steps a–c for it.
+{{- end }}
 
 3. Configure SABnzbd connection in Sonarr/Radarr/Lidarr:
      Host:     sabnzbd.{{ .Release.Namespace }}.svc.cluster.local

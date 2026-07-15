@@ -2,6 +2,29 @@
 
 All notable changes to this Helm chart are documented here.
 
+## [1.1.1] - 2026-07-15
+
+### Fixed
+- **SABnzbd unreachable through gluetun's firewall.** gluetun drops NEW inbound
+  connections on the pod interface by default, so the *arrs and kubelet probes
+  could never reach SABnzbd:8080 even with a NetworkPolicy allow. Added
+  `FIREWALL_INPUT_PORTS={{ sabnzbd.port }}` to the gluetun container (gluetun
+  wiki, firewall.md: required for Kubernetes sidecars). Credit: external QA
+  review.
+- Removed stale `templates/plex-hpa.yaml`, `templates/secrets.yaml`, and
+  `templates/namespace.yaml` that survived the v1.1.0 push. The orphaned HPA
+  template referenced deleted values and made the chart fail to render
+  entirely; the other two caused Helm ownership conflicts at install.
+- ClamAV memory raised (requests 1536Mi, limits 4Gi) — the signature database
+  alone needs ~1.5Gi at load; 3Gi left too little headroom for large scans.
+
+### Added
+- README: block-storage requirement for config PVCs (SQLite must not sit on
+  SMB/NFS) and SABnzbd download-path guidance for atomic imports.
+- NOTES: multi-replica claim-token expiry warning.
+- tests/validate.py: regression guard asserting gluetun exposes
+  FIREWALL_INPUT_PORTS matching the SABnzbd port.
+
 ## [1.1.0] - 2026-07-14
 
 ### Fixed

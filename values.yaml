@@ -173,13 +173,15 @@ clamav:
   # false = silent on clean scans (recommended — less noise)
   notifyOnClean: "false"
 
+  # ClamAV loads its full signature DB into memory (~1.5Gi+). Limit must
+  # leave headroom or the job OOMs at startup.
   resources:
     requests:
       cpu: "250m"
-      memory: "1Gi"
+      memory: "1536Mi"
     limits:
       cpu: "2000m"
-      memory: "3Gi"
+      memory: "4Gi"
 
   daily:
     schedule: "30 2 * * *"        # 2:30 AM — scans files downloaded in last 24h

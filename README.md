@@ -77,6 +77,9 @@ Key design decisions:
 
 - Kubernetes cluster with at least one Linux worker node (k3s, kubeadm, RKE2...)
 - A CNI that enforces NetworkPolicy (Calico, Cilium, ...)
+- A **block-storage default StorageClass** (local-path, Longhorn, ...). App
+  config PVCs use the cluster default and hold SQLite databases — SQLite on
+  SMB/NFS corrupts. Only the media share is SMB.
 - TrueNAS (or other NAS) with an SMB share reachable from the cluster
 - OpenVPN provider account and its `.ovpn` files
 - kubectl and helm on the deploy machine (installed automatically if missing)
@@ -105,6 +108,14 @@ helm upgrade --install akpn . -n media --create-namespace \
 ```
 
 `nas.host` is required — rendering fails without it.
+
+### SABnzbd download paths
+
+Every pod mounts the same `media-pvc` at `/mnt/media`, so point SABnzbd's
+temporary and complete download folders at subdirectories of it (e.g.
+`/mnt/media/usenet/incomplete`, `/mnt/media/usenet/complete`). Imports into
+the library are then instant server-side renames on the NAS instead of a
+copy back across the network.
 
 ## Security model
 

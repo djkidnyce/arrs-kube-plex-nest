@@ -106,6 +106,12 @@ spec:
                 configMapKeyRef:
                   name: vpn-config
                   key: firewall-outbound-subnets
+            # Gluetun's firewall drops NEW inbound connections on the pod
+            # interface unless the port is whitelisted. Required so the *arrs
+            # and kubelet probes can reach SABnzbd's API (gluetun wiki,
+            # firewall.md — "needed for Kubernetes sidecars").
+            - name: FIREWALL_INPUT_PORTS
+              value: {{ .Values.sabnzbd.port | quote }}
             - name: HTTP_CONTROL_SERVER_ADDRESS
               value: ":8000"
             - name: HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH

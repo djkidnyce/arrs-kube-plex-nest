@@ -107,6 +107,16 @@ def main(path):
 
     check(not any(d["kind"] == "HorizontalPodAutoscaler" for d in docs), "no HPA (Plex cannot autoscale)")
 
+    # gluetun firewall must whitelist SABnzbd's inbound port (k8s sidecar requirement)
+    for d in workloads:
+        if d["metadata"]["name"] != "sabnzbd":
+            continue
+        g = [c for c in pod_spec(d)["containers"] if c["name"] == "gluetun"][0]
+        env = {e["name"]: e.get("value") for e in g.get("env", [])}
+        sab_port = [c for c in pod_spec(d)["containers"] if c["name"] == "sabnzbd"][0]["ports"][0]["containerPort"]
+        check(env.get("FIREWALL_INPUT_PORTS") == str(sab_port),
+              f"gluetun FIREWALL_INPUT_PORTS matches SABnzbd port ({sab_port})")
+
     # 3. service selectors and ports
     pods_by_labels = []
     for d in workloads:
