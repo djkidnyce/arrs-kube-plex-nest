@@ -5,6 +5,7 @@ kubeconfig
 secrets-override.yaml
 my-values.yaml
 *-override.yaml
+*.cowork-write-test
 
 # ── Helm generated ────────────────────────────────────────────────────────────
 charts/
