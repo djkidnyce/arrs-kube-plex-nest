@@ -107,6 +107,18 @@ def main(path):
 
     check(not any(d["kind"] == "HorizontalPodAutoscaler" for d in docs), "no HPA (Plex cannot autoscale)")
 
+    # Plex transcode scratch: disk-backed emptyDir with a size cap, never tmpfs
+    for d in workloads:
+        if d["kind"] == "StatefulSet" and d["metadata"]["name"] == "plex":
+            spec = pod_spec(d)
+            tv = [v for v in spec["volumes"] if v["name"] == "transcode"]
+            check(bool(tv) and "emptyDir" in tv[0], "plex: transcode emptyDir present")
+            if tv:
+                check(tv[0]["emptyDir"].get("medium") != "Memory", "plex: transcode NOT memory-backed (tmpfs counts against mem limit)")
+                check(bool(tv[0]["emptyDir"].get("sizeLimit")), "plex: transcode sizeLimit set")
+            tm = [m for c in spec["containers"] for m in c.get("volumeMounts", []) if m["mountPath"] == "/transcode"]
+            check(bool(tm), "plex: /transcode mounted")
+
     # gluetun firewall must whitelist SABnzbd's inbound port (k8s sidecar requirement)
     for d in workloads:
         if d["metadata"]["name"] != "sabnzbd":

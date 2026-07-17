@@ -43,7 +43,12 @@
    repeat steps a–c for it.
 {{- end }}
 
-3. Configure SABnzbd connection in Sonarr/Radarr/Lidarr:
+3. On EACH Plex server after claiming, set the transcoder scratch dir:
+     Settings → Transcoder → "Transcoder temporary directory" → /transcode
+   (disk-backed emptyDir, {{ .Values.plex.transcodeScratchSize }} cap — keeps transcode I/O off the
+   config volume so a busy 4K session can't fill the database disk)
+
+4. Configure SABnzbd connection in Sonarr/Radarr/Lidarr:
      Host:     sabnzbd.{{ .Release.Namespace }}.svc.cluster.local
      Port:     {{ .Values.sabnzbd.port }}
      API Key:  (from SABnzbd Settings → General)

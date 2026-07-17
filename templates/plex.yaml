@@ -71,10 +71,17 @@ spec:
               mountPath: /config
             - name: media
               mountPath: /mnt/media
+            - name: transcode
+              mountPath: /transcode
       volumes:
         - name: media
           persistentVolumeClaim:
             claimName: media-pvc
+        # Disk-backed scratch for transcodes — set Settings → Transcoder →
+        # "Transcoder temporary directory" to /transcode on each server.
+        - name: transcode
+          emptyDir:
+            sizeLimit: {{ .Values.plex.transcodeScratchSize }}
   volumeClaimTemplates:
     - metadata:
         name: config

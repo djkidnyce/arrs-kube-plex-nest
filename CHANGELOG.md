@@ -2,6 +2,28 @@
 
 All notable changes to this Helm chart are documented here.
 
+## [1.1.2] - 2026-07-17
+
+### Fixed
+- **Plex transcode scratch volume.** Transcode sessions previously wrote to
+  Plex's default temp path on the 10Gi config PVC; concurrent 4K sessions
+  could fill it and break the server's SQLite database writes. Added a
+  disk-backed emptyDir at `/transcode` (`plex.transcodeScratchSize`, default
+  20Gi) with a NOTES step to point each server's transcoder temp directory
+  at it. Deliberately NOT memory-backed: a tmpfs emptyDir counts against the
+  container's 4Gi memory limit and would invite OOMKills. Regression guards
+  added (emptyDir present, sized, not tmpfs). Prompted by external QA ticket
+  AKPN-009 (premise corrected: transcodes never touched the SMB share).
+
+### Rejected external QA tickets (for the record)
+- AKPN-007 (add headless service): already present since v1.0; proposed
+  selector would have broken per-pod DNS.
+- AKPN-008 (preStop hooks for SMB locks): configs are on block storage, not
+  SMB; hook was a no-op that slows drains.
+- Gluetun startupProbe on :8000/v1/health: no probes exist on gluetun to fix;
+  the proposed probe targets the auth-gated control server and would
+  crash-loop the pod (health endpoint is 127.0.0.1:9999).
+
 ## [1.1.1] - 2026-07-15
 
 ### Fixed

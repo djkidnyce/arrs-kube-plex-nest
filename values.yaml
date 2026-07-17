@@ -41,6 +41,12 @@ plex:
   basePort: 32400
   replicas: 2
   configStorageSize: "10Gi"   # per-replica; plex-config-plex-0, plex-config-plex-1
+  # Scratch space for active transcode sessions (disk-backed emptyDir).
+  # Keeps large transient writes off the config PVC, which holds the SQLite
+  # database and can otherwise fill mid-stream. Sized per concurrent 4K
+  # session (~10-15Gi each at worst case). NOT memory-backed: a tmpfs would
+  # count against the container's 4Gi memory limit and invite OOMKills.
+  transcodeScratchSize: "20Gi"
   resources:
     requests:
       cpu: "500m"
