@@ -52,6 +52,13 @@ spec:
                   optional: true   # only used while a server is unclaimed
           resources:
             {{- toYaml .Values.plex.resources | nindent 12 }}
+          # Plex can take minutes on first boot / after a library scan.
+          startupProbe:
+            httpGet:
+              path: /identity
+              port: 32400
+            failureThreshold: 60
+            periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /identity

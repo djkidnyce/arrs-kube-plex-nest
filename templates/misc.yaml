@@ -38,6 +38,12 @@ spec:
             {{- include "akpn.globalEnv" . | nindent 12 }}
           resources:
             {{- toYaml .Values.seerr.resources | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: /api/v1/status
+              port: {{ .Values.seerr.port }}
+            failureThreshold: 30
+            periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /api/v1/status
@@ -97,6 +103,12 @@ spec:
             {{- include "akpn.globalEnv" . | nindent 12 }}
           resources:
             {{- toYaml .Values.tautulli.resources | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: /status
+              port: {{ .Values.tautulli.port }}
+            failureThreshold: 30
+            periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /status

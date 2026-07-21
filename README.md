@@ -109,6 +109,58 @@ helm upgrade --install akpn . -n media --create-namespace \
 
 `nas.host` is required — rendering fails without it.
 
+### VPN modes
+
+`vpn.mode` selects how gluetun connects:
+
+- **`native`** (default): gluetun picks servers from its own built-in list for
+  `vpn.provider` (privado, mullvad, nordvpn, pia, and
+  [many others](https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers)).
+  Filter with `vpn.serverCountries` / `serverCities` / `serverHostnames`.
+  Credentials come from the `OPENVPN_USER` and `OPENVPN_PASSWORD` keys of the
+  `vpn-credentials` Secret. No `.ovpn` files, and server rotation works because
+  gluetun reselects on each restart.
+- **`custom`**: your own `.ovpn` files, loaded with `deploy.sh --ovpn-dir`.
+  gluetun's `OPENVPN_CUSTOM_CONFIG` accepts a **single file**, so
+  `vpn.customConfigFile` must name one of the uploaded files. Use this only if
+  gluetun has no built-in support for your provider.
+
+### gluetun capabilities
+
+gluetun runs with `drop: ALL` plus exactly five capabilities, each verified as
+load-bearing on a live cluster: `NET_ADMIN` (tun0 and iptables), `CHOWN` and
+`DAC_OVERRIDE` (writing `/etc/openvpn/target.ovpn`; dropping ALL removes even
+root's implicit file powers), and `SETUID`/`SETGID` (openvpn drops to
+`nonrootuser`). `NET_RAW` is deliberately omitted: gluetun only wants it for
+ICMP health checks and falls back to DNS probes automatically.
+
+### SABnzbd health probes
+
+SABnzbd's `/api` returns 403 without an API key and it exposes no
+unauthenticated health endpoint, so its probes are `tcpSocket`. An HTTP probe
+can never pass and leaves the pod permanently unready.
+
+### DNS inside the VPN pod
+
+gluetun rewrites the SABnzbd pod's resolv.conf to its own DNS-over-TLS
+resolver, so cluster names like `sonarr.media.svc.cluster.local` do NOT resolve
+inside that pod. This is by design and costs nothing: the *arrs dial in to
+SABnzbd, and SABnzbd only dials out to public usenet hosts. Do not "fix" it
+with `DNS_KEEP_NAMESERVER=on` — gluetun's docs mark that debug-only and it
+leaks DNS outside the VPN. If something inside the pod must reach a cluster
+service, use the Service's ClusterIP (allowed via `FIREWALL_OUTBOUND_SUBNETS`),
+not its DNS name.
+
+### Rotating the gluetun API key
+
+`deploy.sh` generates the `gluetun-control-auth` Secret once and keeps it on
+reruns. If you rotate it manually, running pods keep the old value, so follow
+any rotation with:
+
+```bash
+kubectl rollout restart deployment/sabnzbd -n media
+```
+
 ### SABnzbd download paths
 
 Every pod mounts the same `media-pvc` at `/mnt/media`, so point SABnzbd's

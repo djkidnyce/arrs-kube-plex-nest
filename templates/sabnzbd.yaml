@@ -1,10 +1,16 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # SABnzbd Deployment — 3-container pod with VPN
 #
+# Two VPN modes (vpn.mode):
+#   native  — gluetun picks servers from its built-in list for vpn.provider.
+#             No .ovpn files, no init container. Recommended.
+#   custom  — your own .ovpn files via `deploy.sh --ovpn-dir`. gluetun's
+#             OPENVPN_CUSTOM_CONFIG takes ONE file, named by vpn.customConfigFile.
+#
 # Container layout (all share the same network namespace):
-#   init: patch-ovpn-creds  — copies .ovpn files from the vpn-ovpn-configs
-#                              Secret to emptyDir, rewrites auth-user-pass to
-#                              /vpn/auth/openvpn.cred
+#   init: patch-ovpn-creds  — custom mode only: copies .ovpn files from the
+#                              vpn-ovpn-configs Secret to emptyDir, rewrites
+#                              auth-user-pass to /vpn/auth/openvpn.cred
 #   1. gluetun              — VPN (NET_ADMIN), creates tun0, enforces kill-switch
 #   2. sabnzbd              — download client; all traffic goes via gluetun
 #   3. vpn-rotator          — calls gluetun control API (apikey auth) to cycle server
@@ -45,7 +51,8 @@ spec:
       automountServiceAccountToken: false
       {{- include "akpn.podSecurityContext" . | nindent 6 }}
 
-      # ── Init: patch .ovpn credential paths ──────────────────────────────
+      {{- if eq .Values.vpn.mode "custom" }}
+      # ── Init: patch .ovpn credential paths (custom mode only) ───────────
       initContainers:
         - name: patch-ovpn-creds
           image: {{ .Values.initImage }}
@@ -80,6 +87,7 @@ spec:
               readOnly: true
             - name: patched-configs
               mountPath: /patched
+      {{- end }}
 
       containers:
         # ── 1. gluetun VPN ────────────────────────────────────────────────
@@ -90,17 +98,51 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
-              add: ["NET_ADMIN"]
+              # Empirically the minimum gluetun needs (verified on a live
+              # cluster): NET_ADMIN for tun0/iptables, CHOWN + DAC_OVERRIDE to
+              # write /etc/openvpn/target.ovpn (dropping ALL removes even
+              # root's implicit file powers), SETUID/SETGID so openvpn can drop
+              # to nonrootuser. NET_RAW deliberately omitted: gluetun only
+              # wants it for ICMP health checks and falls back to DNS probes.
+              add: ["NET_ADMIN", "CHOWN", "DAC_OVERRIDE", "SETUID", "SETGID"]
           env:
-            - name: VPN_SERVICE_PROVIDER
-              value: "custom"
             - name: VPN_TYPE
               value: "openvpn"
+            {{- if eq .Values.vpn.mode "native" }}
+            - name: VPN_SERVICE_PROVIDER
+              value: {{ .Values.vpn.provider | quote }}
+            - name: OPENVPN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: vpn-credentials
+                  key: OPENVPN_USER
+            - name: OPENVPN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: vpn-credentials
+                  key: OPENVPN_PASSWORD
+            {{- with .Values.vpn.serverCountries }}
+            - name: SERVER_COUNTRIES
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.vpn.serverCities }}
+            - name: SERVER_CITIES
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.vpn.serverHostnames }}
+            - name: SERVER_HOSTNAMES
+              value: {{ . | quote }}
+            {{- end }}
+            {{- else }}
+            - name: VPN_SERVICE_PROVIDER
+              value: "custom"
+            # OPENVPN_CUSTOM_CONFIG takes a SINGLE file, never a directory.
             - name: OPENVPN_CUSTOM_CONFIG
-              value: "/gluetun/patched-configs"
+              value: "/gluetun/patched-configs/{{ required "vpn.customConfigFile is required when vpn.mode=custom" .Values.vpn.customConfigFile }}"
             # Auth comes from the credential file referenced by auth-user-pass
             # (rewritten by the init container). Do NOT set OPENVPN_USER /
             # OPENVPN_PASSWORD here — they would override the file.
+            {{- end }}
             - name: FIREWALL_OUTBOUND_SUBNETS
               valueFrom:
                 configMapKeyRef:
@@ -119,12 +161,14 @@ spec:
           resources:
             {{- toYaml .Values.vpn.resources | nindent 12 }}
           volumeMounts:
+            {{- if eq .Values.vpn.mode "custom" }}
             - name: patched-configs
               mountPath: /gluetun/patched-configs
               readOnly: true
             - name: vpn-cred-file
               mountPath: /vpn/auth
               readOnly: true
+            {{- end }}
             - name: control-auth
               mountPath: /gluetun/auth
               readOnly: true
@@ -142,17 +186,23 @@ spec:
             {{- include "akpn.globalEnv" . | nindent 12 }}
           resources:
             {{- toYaml .Values.sabnzbd.resources | nindent 12 }}
+          # TCP probes, not HTTP: SABnzbd's /api returns 403 without an API
+          # key and it exposes no unauthenticated health endpoint, so an HTTP
+          # probe can never pass and the pod stays permanently unready.
+          startupProbe:
+            tcpSocket:
+              port: {{ .Values.sabnzbd.port }}
+            failureThreshold: 30
+            periodSeconds: 10
           livenessProbe:
-            httpGet:
-              path: /api
+            tcpSocket:
               port: {{ .Values.sabnzbd.port }}
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 5
           readinessProbe:
-            httpGet:
-              path: /api
+            tcpSocket:
               port: {{ .Values.sabnzbd.port }}
             initialDelaySeconds: 15
             periodSeconds: 10
@@ -192,10 +242,10 @@ spec:
         - name: media
           persistentVolumeClaim:
             claimName: media-pvc
+        {{- if eq .Values.vpn.mode "custom" }}
         - name: vpn-configs
           secret:
             secretName: {{ .Values.vpn.ovpnSecret }}
-            optional: true    # pod starts without it; gluetun waits for configs
             defaultMode: 0440
         - name: patched-configs
           emptyDir: {}
@@ -206,6 +256,7 @@ spec:
               - key: openvpn.cred
                 path: openvpn.cred
                 mode: 0440
+        {{- end }}
         - name: control-auth
           secret:
             secretName: {{ .Values.vpn.controlAuthSecret }}

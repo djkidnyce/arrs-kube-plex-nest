@@ -107,6 +107,52 @@ def main(path):
 
     check(not any(d["kind"] == "HorizontalPodAutoscaler" for d in docs), "no HPA (Plex cannot autoscale)")
 
+    # ── gluetun runtime requirements (all six verified on a live cluster) ──
+    for d in workloads:
+        if d["metadata"]["name"] != "sabnzbd":
+            continue
+        spec = pod_spec(d)
+        g = [c for c in spec["containers"] if c["name"] == "gluetun"][0]
+        env = {e["name"]: e for e in g.get("env", [])}
+        caps = set(g["securityContext"]["capabilities"].get("add") or [])
+
+        # capabilities: dropping ALL removes root's implicit powers, so each of
+        # these is load-bearing (tunnel, config write, privilege drop)
+        for cap in ("NET_ADMIN", "CHOWN", "DAC_OVERRIDE", "SETUID", "SETGID"):
+            check(cap in caps, f"gluetun capability {cap} present")
+
+        # OPENVPN_CUSTOM_CONFIG must name a FILE, never a directory
+        occ = env.get("OPENVPN_CUSTOM_CONFIG", {}).get("value")
+        if occ is not None:
+            check(occ.endswith(".ovpn"), f"OPENVPN_CUSTOM_CONFIG is a file, not a dir ({occ})")
+
+        # native mode wiring
+        provider = env.get("VPN_SERVICE_PROVIDER", {}).get("value")
+        if provider and provider != "custom":
+            check("OPENVPN_USER" in env and "OPENVPN_PASSWORD" in env,
+                  f"native mode ({provider}): OPENVPN_USER/PASSWORD wired")
+            check(occ is None, "native mode: no OPENVPN_CUSTOM_CONFIG")
+            check(not spec.get("initContainers"), "native mode: no .ovpn init container")
+            for vol in spec.get("volumes", []):
+                check(vol["name"] != "vpn-cred-file",
+                      "native mode: openvpn.cred not mounted (missing key hangs the pod)")
+
+        # SABnzbd probes must not be HTTP: /api returns 403 without an API key
+        sab = [c for c in spec["containers"] if c["name"] == "sabnzbd"][0]
+        for probe in ("livenessProbe", "readinessProbe", "startupProbe"):
+            if probe in sab:
+                check("httpGet" not in sab[probe],
+                      f"sabnzbd {probe} is not HTTP (/api needs an API key)")
+
+    # every long-running app has a startupProbe so slow boots aren't liveness-killed
+    for d in workloads:
+        if d["kind"] not in ("Deployment", "StatefulSet"):
+            continue
+        for c in pod_spec(d)["containers"]:
+            if c["name"] in ("gluetun", "vpn-rotator"):
+                continue
+            check("startupProbe" in c, f'{d["metadata"]["name"]}/{c["name"]}: startupProbe present')
+
     # Plex transcode scratch: disk-backed emptyDir with a size cap, never tmpfs
     for d in workloads:
         if d["kind"] == "StatefulSet" and d["metadata"]["name"] == "plex":

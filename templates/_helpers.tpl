@@ -93,6 +93,12 @@ Standard liveness / readiness probes for *arr HTTP services.
   {{ include "akpn.httpProbes" (dict "port" 8989 "path" "/ping") }}
 */}}
 {{- define "akpn.httpProbes" -}}
+startupProbe:
+  httpGet:
+    path: {{ .path }}
+    port: {{ .port }}
+  failureThreshold: 30
+  periodSeconds: 10
 livenessProbe:
   httpGet:
     path: {{ .path }}

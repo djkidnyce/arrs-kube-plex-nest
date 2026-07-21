@@ -58,9 +58,32 @@ plex:
 # ── VPN (gluetun sidecar in SABnzbd pod) ─────────────────────────────────────
 vpn:
   image: "ghcr.io/qdm12/gluetun:v3.41.1"
+
+  # mode: native | custom
+  #
+  # native (recommended): gluetun selects servers from its own built-in list
+  #   for `provider`. No .ovpn files needed, server rotation actually works,
+  #   and there is no 1MiB Secret to manage. Requires that gluetun supports
+  #   your provider (see https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers).
+  #
+  # custom: supply your own .ovpn files via `deploy.sh --ovpn-dir`. Use this
+  #   only if gluetun has no built-in support for your provider. NOTE: gluetun's
+  #   OPENVPN_CUSTOM_CONFIG takes a SINGLE file, so `customConfigFile` must name
+  #   one of the uploaded files.
+  mode: "native"
+
+  # native mode: gluetun provider id (privado, mullvad, nordvpn, pia, ...)
+  provider: "privado"
+  # Server filters — leave blank for no filter. Comma separated.
+  serverCountries: "United States"
+  serverCities: ""
+  serverHostnames: ""
+
+  # custom mode only: which uploaded .ovpn file gluetun should use.
+  customConfigFile: ""
+
   # Seconds between VPN server rotations (0 = off).
   # Edit with: kubectl edit configmap vpn-config -n <namespace>
-  # Change takes effect on next rotation cycle — no restart needed.
   rotationIntervalSeconds: "3600"
   # RFC-1918 + k8s pod CIDRs that bypass the VPN tunnel.
   # Required so Sonarr/Radarr can reach SABnzbd's ClusterIP for queue management.
@@ -69,7 +92,7 @@ vpn:
   # Created by deploy.sh — gluetun >= v3.40 requires authentication on all
   # control-server routes.
   controlAuthSecret: "gluetun-control-auth"
-  # Secret holding uploaded .ovpn files (created by deploy.sh --ovpn-dir).
+  # custom mode only: Secret holding uploaded .ovpn files (deploy.sh --ovpn-dir)
   ovpnSecret: "vpn-ovpn-configs"
   resources:
     requests:

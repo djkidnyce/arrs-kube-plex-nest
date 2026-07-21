@@ -36,8 +36,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ── Colors ────────────────────────────────────────────────────────────────────
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; RESET='\033[0m'
+RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'
+CYAN=$'\033[0;36m'; BOLD=$'\033[1m'; DIM=$'\033[2m'; RESET=$'\033[0m'
 
 info()    { echo -e "${CYAN}[info]${RESET}  $*"; }
 success() { echo -e "${GREEN}[ok]${RESET}    $*"; }
@@ -198,6 +198,25 @@ confirm_or_prompt NAS_SHARE     "SMB share name"           optional
 NAS_SHARE="${NAS_SHARE:-media}"
 confirm_or_prompt NAS_SHARE_SIZE "Share size quota"        optional
 NAS_SHARE_SIZE="${NAS_SHARE_SIZE:-10Ti}"
+# Normalize common shorthand (30tb, 30TB, 30t) to Kubernetes quantities (30Ti)
+normalize_size() {
+  local raw="${1//[[:space:]]/}" num unit
+  num="${raw%%[!0-9.]*}"; unit="${raw#"$num"}"
+  [[ -z "$num" ]] && { printf '%s' "$raw"; return; }
+  case "${unit,,}" in
+    ti|t|tb|tib) printf '%sTi' "$num" ;;
+    gi|g|gb|gib) printf '%sGi' "$num" ;;
+    pi|p|pb|pib) printf '%sPi' "$num" ;;
+    mi|m|mb|mib) printf '%sMi' "$num" ;;
+    "")          printf '%sTi' "$num" ;;
+    *)           printf '%s' "$raw" ;;
+  esac
+}
+_normalized="$(normalize_size "$NAS_SHARE_SIZE")"
+if [[ "$_normalized" != "$NAS_SHARE_SIZE" ]]; then
+  info "Interpreting share size '${NAS_SHARE_SIZE}' as '${_normalized}'."
+  NAS_SHARE_SIZE="$_normalized"
+fi
 echo
 
 # Connectivity check (ping, not SMB — just confirms NAS is reachable on the network)
@@ -214,16 +233,6 @@ confirm_or_prompt SMB_USER "SMB username"
 echo
 
 prompt_or_keep_password SMB_PASS "smb-credentials" "SMB password"
-echo
-
-# ── Plex claim ───────────────────────────────────────────────────────────────
-echo -e "  ${BOLD}Plex Claim Token${RESET}"
-echo "  Get one at https://plex.tv/claim — valid 4 minutes."
-echo "  Leave blank to skip (claim manually later via: kubectl edit secret plex-claim -n ${NAMESPACE})."
-if kubectl get secret plex-claim -n "$NAMESPACE" &>/dev/null 2>&1; then
-  echo -e "  ${GREEN}plex-claim already exists — leaving blank keeps the existing token.${RESET}"
-fi
-read -rp "  Plex claim token: " PLEX_TOKEN
 echo
 
 # ── VPN credentials ──────────────────────────────────────────────────────────
@@ -263,22 +272,6 @@ else
       || warn "smb-credentials create failed — continuing."
   fi
 
-  # Plex claim (optional)
-  if [[ -n "${PLEX_TOKEN:-}" ]]; then
-    kubectl create secret generic plex-claim \
-      --from-literal=token="$PLEX_TOKEN" \
-      --namespace="$NAMESPACE" \
-      --dry-run=client -o yaml | kubectl apply -f - \
-      && success "plex-claim updated." \
-      || warn "plex-claim create failed — continuing."
-  else
-    if ! kubectl get secret plex-claim -n "$NAMESPACE" &>/dev/null 2>&1; then
-      warn "plex-claim skipped — create it before Plex can claim your server."
-    else
-      info "plex-claim — keeping existing secret."
-    fi
-  fi
-
   # VPN credentials (two-line openvpn.cred file)
   if [[ "${VPN_PASS:-}" == "__KEEP__" ]]; then
     info "vpn-credentials — keeping existing secret."
@@ -286,7 +279,12 @@ else
     CRED_FILE="$(mktemp)"
     trap "rm -f '$CRED_FILE'" EXIT
     printf '%s\n%s\n' "$VPN_USER" "$VPN_PASS" > "$CRED_FILE"
+    # OPENVPN_USER/OPENVPN_PASSWORD are what gluetun's native providers read;
+    # openvpn.cred is only used by custom (.ovpn) mode. Both are written so
+    # switching vpn.mode never requires re-entering credentials.
     kubectl create secret generic vpn-credentials \
+      --from-literal=OPENVPN_USER="$VPN_USER" \
+      --from-literal=OPENVPN_PASSWORD="$VPN_PASS" \
       --from-file=openvpn.cred="$CRED_FILE" \
       --namespace="$NAMESPACE" \
       --dry-run=client -o yaml | kubectl apply -f - \
@@ -326,12 +324,15 @@ TOML
     if compgen -G "$OVPN_DIR/*.ovpn" > /dev/null; then
       OVPN_ARGS=()
       for f in "$OVPN_DIR"/*.ovpn; do OVPN_ARGS+=("--from-file=$f"); done
+      # Direct create/replace, NOT `--dry-run | apply`: client-side apply
+      # stores the whole object in an annotation capped at 256KiB, which a
+      # folder of .ovpn files blows past.
+      kubectl delete secret vpn-ovpn-configs -n "$NAMESPACE" &>/dev/null 2>&1
       kubectl create secret generic vpn-ovpn-configs \
         "${OVPN_ARGS[@]}" \
         --namespace="$NAMESPACE" \
-        --dry-run=client -o yaml | kubectl apply -f - \
         && success "vpn-ovpn-configs updated (${#OVPN_ARGS[@]} file(s))." \
-        || warn "vpn-ovpn-configs create failed."
+        || warn "vpn-ovpn-configs create failed (Secrets cap at ~1MiB total; use fewer .ovpn files)."
     else
       warn "No .ovpn files found in $OVPN_DIR — skipping."
     fi
@@ -370,13 +371,12 @@ if $DRY_RUN; then
   HELM_CMD+=(--dry-run --debug)
   info "DRY RUN — rendering manifests only:"
 else
-  # Helm v4 renamed --atomic to --rollback-on-failure
-  HELM_MAJOR=$(helm version --template '{{.Version}}' 2>/dev/null | grep -oE '^v[0-9]+' || echo v3)
-  if [[ "$HELM_MAJOR" == "v4" ]]; then
-    HELM_CMD+=(--rollback-on-failure --timeout 5m)
-  else
-    HELM_CMD+=(--atomic --timeout 5m)
-  fi
+  # No --atomic / --rollback-on-failure on purpose: the ClamAV definitions PVC
+  # uses WaitForFirstConsumer and stays Pending until the CronJob first fires,
+  # so helm's readiness gate can never pass and would roll back a healthy
+  # install. Pods converge on their own; watch with:
+  #   kubectl get pods -n <ns> -w
+  :
 fi
 
 info "Running: ${HELM_CMD[*]}"
@@ -387,13 +387,49 @@ if "${HELM_CMD[@]}"; then
     echo -e "${GREEN}${BOLD}✓ Helm deploy complete — namespace '${NAMESPACE}'${RESET}"
     echo
     show_namespace_status
+    # ── Plex claim token — asked LAST, on purpose ─────────────────────────
+    # Tokens are single-use and expire in ~4 minutes, so prompting for one
+    # before a multi-minute helm install guarantees it is dead on arrival.
+    banner "Plex claim token (optional)"
+    echo "  Plex claim tokens are single-use and expire in ~4 MINUTES, so this"
+    echo "  is asked last, once everything else is deployed."
+    echo
+    echo "  Get a fresh token now at:  https://plex.tv/claim"
+    echo "  Press Enter to skip — you can always claim a server later by"
+    echo "  visiting its web UI directly."
+    echo
+    read -rp "  Plex claim token: " PLEX_TOKEN
+    echo
+
+    if [[ -n "${PLEX_TOKEN:-}" ]]; then
+      if kubectl create secret generic plex-claim \
+        --from-literal=token="$PLEX_TOKEN" \
+        --namespace="$NAMESPACE" \
+        --dry-run=client -o yaml | kubectl apply -f - ; then
+        success "plex-claim updated."
+        info "Restarting plex-0 so it picks the token up now (token is single-use)..."
+        kubectl delete pod plex-0 -n "$NAMESPACE" &>/dev/null 2>&1 \
+          && success "plex-0 restarting — it will claim on boot." \
+          || warn "Could not restart plex-0; delete the pod manually to claim."
+        echo
+        echo "  For additional Plex servers (plex-1, ...), repeat with a FRESH"
+        echo "  token each time, then delete that specific pod:"
+        echo "    kubectl delete pod plex-1 -n $NAMESPACE"
+      else
+        warn "plex-claim create failed — claim manually via the Plex web UI."
+      fi
+    else
+      info "Plex claim skipped — claim later via each server's web UI."
+    fi
+
+    echo
     echo -e "  ${BOLD}Next steps:${RESET}"
-    echo "  1. If you haven't loaded .ovpn files yet:"
-    echo "       $0 --ovpn-dir /path/to/ovpn/files"
-    echo "       kubectl rollout restart deployment/sabnzbd -n $NAMESPACE"
+    echo "  1. Watch pods settle:"
+    echo "       kubectl get pods -n $NAMESPACE -w"
     echo "  2. Get service IPs:"
     echo "       kubectl get svc -n $NAMESPACE"
-    echo "  3. Claim EACH Plex server separately (see NOTES):"
+    echo "  3. Set each Plex server's transcoder dir to /transcode, and wire"
+    echo "     SABnzbd into the *arrs. Full instructions:"
     echo "       helm get notes akpn -n $NAMESPACE"
   fi
 else

@@ -2,6 +2,67 @@
 
 All notable changes to this Helm chart are documented here.
 
+## [1.1.4] - 2026-07-20
+
+First release validated against a real cluster (kubeadm 1.36, Calico, MetalLB,
+local-path, TrueNAS SMB). Six defects surfaced that static validation could not
+catch, four of them inherited from v1.0. Also folds in the v1.1.3 doc notes,
+which were never released.
+
+### Fixed
+- **VPN never worked.** `OPENVPN_CUSTOM_CONFIG` was pointed at a directory;
+  gluetun requires a single file and exited with "filepath is a directory" on
+  every start since v1.0. Reworked into `vpn.mode`:
+  - `native` (new default): gluetun's built-in provider support
+    (`vpn.provider`, default privado) with `serverCountries`/`serverCities`/
+    `serverHostnames` filters. No .ovpn files, working server rotation.
+  - `custom`: the .ovpn workflow, with `vpn.customConfigFile` naming the single
+    file gluetun actually accepts (required-guarded).
+- **gluetun capability set was too small to run.** `drop: ALL` + `NET_ADMIN`
+  left it unable to write its config (`chown` then `open ... permission
+  denied`, because dropping ALL strips root's implicit file powers) and unable
+  to drop privileges (`setuid('nonrootuser') failed`). Now adds CHOWN,
+  DAC_OVERRIDE, SETUID, SETGID. NET_RAW intentionally still omitted.
+- **SABnzbd was permanently unready.** Probes hit `/api`, which returns 403
+  without an API key, so kubelet killed the container in a loop. Switched to
+  `tcpSocket`.
+- **`openvpn.cred` mount hung the pod** whenever that key was absent from the
+  Secret. Now mounted only in custom mode.
+- **deploy.sh `--rollback-on-failure` guaranteed failure.** The ClamAV
+  definitions PVC is WaitForFirstConsumer and stays Pending until the CronJob
+  first fires, so helm's readiness gate could never pass and rolled back
+  healthy installs. Flag removed.
+- **.ovpn Secret creation hit the 256KiB annotation limit** because it routed
+  through client-side apply. Now creates directly.
+- deploy.sh: literal `\033[2m` escape codes printed in prompts (`read` does not
+  interpret them; switched to ANSI-C quoting).
+- deploy.sh: share sizes like `30tb` are normalized to `30Ti` at the prompt
+  instead of failing schema validation minutes later inside helm.
+
+### Changed
+- **Plex claim token is now the LAST prompt**, asked after helm completes, and
+  it immediately restarts plex-0 to consume it. Tokens are single-use with a
+  ~4 minute expiry, so asking before a multi-minute install guaranteed expiry.
+- deploy.sh writes `OPENVPN_USER`/`OPENVPN_PASSWORD` alongside `openvpn.cred`,
+  so switching `vpn.mode` never requires re-entering credentials.
+- **startupProbes on every long-running container** (Plex 10 min, apps 5 min).
+  On a loaded node, slow first boots were liveness-killed into restart loops
+  before they could finish initializing.
+
+### Documentation
+- README: VPN modes, the gluetun capability rationale, why SABnzbd uses TCP
+  probes, DNS behavior inside the VPN pod (and why not to set
+  `DNS_KEEP_NAMESERVER`), and gluetun API key rotation.
+
+### Testing
+- tests/validate.py: 191 checks, up from 171. New guards assert the gluetun
+  capability set, that `OPENVPN_CUSTOM_CONFIG` is never a directory, native
+  mode wiring (credentials present, no init container, no cred mount), non-HTTP
+  SABnzbd probes, and startupProbe presence on every app container.
+- tests/render.py: added `eq`, `ne`, `not`, `empty`, `default`, and `with`.
+- Both vpn.mode paths render and are asserted, plus a negative test that custom
+  mode without `customConfigFile` fails to render.
+
 ## [1.1.2] - 2026-07-17
 
 ### Fixed

@@ -24,10 +24,17 @@
   FIRST-TIME SETUP
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-1. .ovpn files: if you didn't pass --ovpn-dir to deploy.sh, load them now:
+{{- if eq .Values.vpn.mode "native" }}
+1. VPN: native mode ({{ .Values.vpn.provider }}){{ with .Values.vpn.serverCountries }}, servers in {{ . }}{{ end }}.
+   No .ovpn files needed. Verify the tunnel is up:
+     kubectl logs -n {{ .Release.Namespace }} deploy/sabnzbd -c gluetun --tail=20
+   Look for "Initialization Sequence Completed" and a public IP that is NOT yours.
+{{- else }}
+1. VPN: custom mode, using {{ .Values.vpn.customConfigFile }}.
+   If you haven't loaded .ovpn files yet:
      ./deploy.sh --ovpn-dir /path/to/ovpn/files
-   then restart SABnzbd:
      kubectl rollout restart deployment/sabnzbd -n {{ .Release.Namespace }}
+{{- end }}
 
 2. Claim each Plex server SEPARATELY (tokens are single-use, 4-minute expiry):
      a. Get a token at https://plex.tv/claim

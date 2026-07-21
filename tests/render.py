@@ -63,6 +63,12 @@ def parse(tokens):
                 if term == "else":
                     elsebody, term2, _, _ = block(it, {"end"})
                 nodes.append(("if", val[2:].strip(), body, elsebody, lt, rt))
+            elif word == "with":
+                body, term, tval, _ = block(it, {"end", "else"})
+                elsebody = []
+                if term == "else":
+                    elsebody, _, _, _ = block(it, {"end"})
+                nodes.append(("with", val[4:].strip(), body, elsebody, lt, rt))
             elif word == "range":
                 body, _, _, _ = block(it, {"end"})
                 nodes.append(("range", val[5:].strip(), body, lt, rt))
@@ -167,6 +173,16 @@ class Renderer:
         if fn == "include":
             name, arg = vals[0], vals[1] if len(vals) > 1 else dot
             return self.render_nodes(self.defines[name], ctx={}, dot=arg).strip("\n")
+        if fn == "eq":
+            return vals[0] == vals[1]
+        if fn == "ne":
+            return vals[0] != vals[1]
+        if fn == "not":
+            return not vals[0]
+        if fn == "empty":
+            return not vals[0]
+        if fn == "default":
+            return vals[1] if vals[1] not in (None, "", 0, [], {}) else vals[0]
         if fn == "until":
             return list(range(int(vals[0])))
         if fn == "add":
@@ -264,6 +280,13 @@ class Renderer:
                 cond, body, elsebody = node[1], node[2], node[3]
                 v = self.eval_expr(cond, ctx, dot)
                 emit(self.render_nodes(body if v else elsebody, dict(ctx), dot))
+            elif kind == "with":
+                expr, body, elsebody = node[1], node[2], node[3]
+                v = self.eval_expr(expr, ctx, dot)
+                if v not in (None, "", 0, [], {}) and v is not False:
+                    emit(self.render_nodes(body, dict(ctx), v))
+                else:
+                    emit(self.render_nodes(elsebody, dict(ctx), dot))
             elif kind == "range":
                 spec, body = node[1], node[2]
                 m = re.match(r"^(\$[A-Za-z0-9_]+)\s*:=\s*(.+)$", spec, re.S)
