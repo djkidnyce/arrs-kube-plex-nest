@@ -109,6 +109,95 @@ helm upgrade --install akpn . -n media --create-namespace \
 
 `nas.host` is required — rendering fails without it.
 
+### Keeping local settings out of git
+
+Copy `my-values.example.yaml` to `my-values.yaml`, edit it, and deploy with it.
+`my-values.yaml` is gitignored, so node IPs, hostnames, and share names stay on
+your machine:
+
+```bash
+cp my-values.example.yaml my-values.yaml
+./deploy.sh -f my-values.yaml
+```
+
+Only the keys you want to override need to be present. Credentials never go in
+this file: deploy.sh creates those as Secrets directly.
+
+### Exposing the web UIs
+
+`expose.mode` controls how services are published:
+
+- **`nodePort`** (default): each exposed service gets a pinned port on every
+  node IP. Works regardless of whether a load balancer controller is present,
+  and regardless of whether MetalLB's L2 announcements reach your clients.
+- **`loadBalancer`**: requires MetalLB or a cloud LB. See the MetalLB note
+  below before choosing this on a Calico cluster.
+- **`clusterIP`**: nothing published; reach UIs with `kubectl port-forward`.
+
+Only Plex and Overseerr are exposed by default. Enable others individually:
+
+```bash
+helm upgrade akpn . -n media --set expose.sonarr=true --set expose.sabnzbd=true
+```
+
+Each exposed service automatically gets a matching NetworkPolicy. Without one,
+the port is published but default-deny drops the traffic, which looks exactly
+like a broken service.
+
+**Enable each app's own authentication before exposing it.** These UIs have
+full download and filesystem control, and the exposure itself provides no
+authentication.
+
+### MetalLB with Calico
+
+If you use `expose.mode: loadBalancer` with Calico's VXLAN overlay, MetalLB may
+bind its ARP responder to `vxlan.calico` instead of your real NIC. The Service
+gets an IP, works from the node itself, and is unreachable from everywhere
+else. Pin the interface:
+
+```yaml
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: lan-l2
+  namespace: metallb-system
+spec:
+  ipAddressPools: ["lan-pool"]
+  interfaces: ["eth0"]
+```
+
+Verify with `kubectl get servicel2status -A`. If that is empty, nothing is
+being announced no matter what IPs the Services show.
+
+### SABnzbd configuration
+
+SABnzbd holds its config in memory and rewrites `sabnzbd.ini` on shutdown, so
+edits made to a running instance are silently discarded. The chart therefore
+seeds settings with an init container before SABnzbd starts:
+
+- `enable_https = 0` so the *arrs can talk to it over plain HTTP internally
+- `inet_exposure` (default 4) so the UI is reachable once published, since
+  NodePort and LoadBalancer both translate the source address and SABnzbd
+  otherwise treats every client as external
+- `host_whitelist` seeded with the cluster DNS names; add node IPs or
+  hostnames you browse to via `sabnzbd.config.hostWhitelist`
+
+Set a username and password in Config → General when exposing it.
+
+### Changing nas.host after install
+
+The StorageClass and PersistentVolume are immutable, so Helm cannot repoint
+them. The share data is untouched by this (`reclaimPolicy: Retain`):
+
+```bash
+kubectl scale statefulset plex --replicas=0 -n media
+kubectl scale deployment sabnzbd sonarr radarr lidarr --replicas=0 -n media
+kubectl delete pvc media-pvc -n media
+kubectl delete pv media-pv
+kubectl delete storageclass smb-media
+./deploy.sh
+```
+
 ### VPN modes
 
 `vpn.mode` selects how gluetun connects:
@@ -188,6 +277,18 @@ Notes: kubelet probe and `kubectl port-forward` traffic is not blocked by
 NetworkPolicy on mainstream CNIs. Egress is intentionally unrestricted except
 for SABnzbd (kill-switch); add egress policies if your CNI supports them and
 you want tighter control.
+
+### ClamAV
+
+Scans write a timestamped report to `clamav.reportDir` (default
+`/mnt/media/.clamav-reports`), readable from any SMB client, keeping the last
+`clamav.keepReports` files. Signature updates run on their own schedule via the
+`clamav-definitions` CronJob, so scans start with current definitions and you
+can refresh without a full scan:
+
+```bash
+kubectl create job --from=cronjob/clamav-definitions defs-now -n media
+```
 
 ## Operations
 

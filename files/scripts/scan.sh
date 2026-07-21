@@ -37,6 +37,19 @@ notify() {
   RC=$?; [ $RC -eq 0 ] && echo "[notify] Sent ($NOTIFICATION_TYPE)" || echo "[notify] Failed (exit $RC)"
 }
 
+REPORT_DIR="${REPORT_DIR:-}"
+KEEP_REPORTS="${KEEP_REPORTS:-30}"
+REPORT=""
+if [ -n "$REPORT_DIR" ]; then
+  mkdir -p "$REPORT_DIR" 2>/dev/null \
+    && REPORT="${REPORT_DIR}/$(date +%Y-%m-%d_%H%M)-${SCAN_TYPE}.log" \
+    || echo "[report] WARNING: cannot create $REPORT_DIR — file reports disabled"
+fi
+say() {
+  echo "$@"
+  [ -n "$REPORT" ] && echo "$@" >> "$REPORT"
+}
+
 echo "=============================="
 echo " ClamAV Media Scanner"
 echo " Type : $SCAN_TYPE"
@@ -82,6 +95,20 @@ INFECTED=$(printf '%s' "$SCAN_OUTPUT" | grep -c "FOUND"); [ -z "$INFECTED" ] && 
 LABEL=$([ "$SCAN_TYPE" = "quick" ] && echo "Daily Quick" || echo "Monthly Full")
 echo "[scan] Exit: $EXIT_CODE | Infected: $INFECTED"
 echo ""
+
+say "ClamAV ${LABEL} scan — $(date)"
+say "Directory : $SCAN_DIR"
+say "Files     : $FILE_COUNT"
+say "Infected  : $INFECTED"
+say "Exit code : $EXIT_CODE"
+[ -n "$SCAN_OUTPUT" ] && say "$SCAN_OUTPUT"
+
+# prune old reports
+if [ -n "$REPORT_DIR" ] && [ -d "$REPORT_DIR" ]; then
+  ls -1t "$REPORT_DIR"/*.log 2>/dev/null | tail -n +$((KEEP_REPORTS + 1)) \
+    | while read -r old; do rm -f "$old"; done
+fi
+[ -n "$REPORT" ] && echo "[report] Written to $REPORT"
 
 case "$EXIT_CODE" in
   0)

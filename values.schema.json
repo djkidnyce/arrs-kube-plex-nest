@@ -1,51 +1,220 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
-  "required": ["global", "nas", "plex", "vpn", "sabnzbd", "sonarr", "radarr", "lidarr", "seerr", "tautulli", "clamav"],
+  "required": [
+    "clamav",
+    "expose",
+    "global",
+    "lidarr",
+    "nas",
+    "plex",
+    "radarr",
+    "sabnzbd",
+    "seerr",
+    "sonarr",
+    "tautulli",
+    "vpn"
+  ],
   "properties": {
     "global": {
       "type": "object",
-      "required": ["puid", "pgid", "timezone"],
+      "required": [
+        "puid",
+        "pgid",
+        "timezone"
+      ],
       "properties": {
-        "puid": {"type": "string", "pattern": "^[0-9]+$"},
-        "pgid": {"type": "string", "pattern": "^[0-9]+$"},
-        "timezone": {"type": "string", "minLength": 1}
+        "puid": {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        },
+        "pgid": {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        },
+        "timezone": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "nas": {
       "type": "object",
-      "required": ["host", "mediaShare", "mountOptions", "mediaShareSize"],
+      "required": [
+        "host",
+        "mediaShare",
+        "mountOptions",
+        "mediaShareSize"
+      ],
       "properties": {
-        "host": {"type": "string"},
-        "mediaShare": {"type": "string", "minLength": 1},
-        "mountOptions": {"type": "array", "items": {"type": "string"}},
-        "mediaShareSize": {"type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?(Ei|Pi|Ti|Gi|Mi|Ki|E|P|T|G|M|K)?$"}
+        "host": {
+          "type": "string"
+        },
+        "mediaShare": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mountOptions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "mediaShareSize": {
+          "type": "string",
+          "pattern": "^[0-9]+(\\.[0-9]+)?(Ei|Pi|Ti|Gi|Mi|Ki|E|P|T|G|M|K)?$"
+        }
       }
     },
     "plex": {
       "type": "object",
-      "required": ["image", "basePort", "replicas", "configStorageSize"],
+      "required": [
+        "image",
+        "basePort",
+        "replicas",
+        "configStorageSize"
+      ],
       "properties": {
-        "image": {"type": "string", "not": {"pattern": ":latest$"}},
-        "basePort": {"type": "integer", "minimum": 1024, "maximum": 65535},
-        "replicas": {"type": "integer", "minimum": 1, "maximum": 10},
-        "configStorageSize": {"type": "string"}
+        "image": {
+          "type": "string",
+          "not": {
+            "pattern": ":latest$"
+          }
+        },
+        "basePort": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65535
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "configStorageSize": {
+          "type": "string"
+        },
+        "libraries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "type",
+              "path"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "movie",
+                  "show",
+                  "artist",
+                  "photo"
+                ]
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^/"
+              }
+            }
+          }
+        }
       }
     },
     "vpn": {
       "type": "object",
-      "required": ["image", "rotationIntervalSeconds", "firewallOutboundSubnets", "controlAuthSecret", "ovpnSecret"],
+      "required": [
+        "image",
+        "rotationIntervalSeconds",
+        "firewallOutboundSubnets",
+        "controlAuthSecret",
+        "ovpnSecret"
+      ],
       "properties": {
-        "image": {"type": "string", "not": {"pattern": ":latest$"}},
-        "rotationIntervalSeconds": {"type": "string", "pattern": "^[0-9]+$"}
+        "image": {
+          "type": "string",
+          "not": {
+            "pattern": ":latest$"
+          }
+        },
+        "rotationIntervalSeconds": {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        }
       }
     },
     "clamav": {
       "type": "object",
-      "required": ["enabled", "image"],
+      "required": [
+        "enabled",
+        "image"
+      ],
       "properties": {
-        "enabled": {"type": "boolean"},
-        "image": {"type": "string", "not": {"pattern": ":latest$"}}
+        "enabled": {
+          "type": "boolean"
+        },
+        "image": {
+          "type": "string",
+          "not": {
+            "pattern": ":latest$"
+          }
+        }
+      }
+    },
+    "expose": {
+      "type": "object",
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "nodePort",
+            "loadBalancer",
+            "clusterIP"
+          ]
+        },
+        "nodePorts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 30000,
+            "maximum": 32767
+          }
+        }
+      }
+    },
+    "sabnzbd": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "type": "object",
+          "properties": {
+            "seed": {
+              "type": "boolean"
+            },
+            "enableHttps": {
+              "type": "boolean"
+            },
+            "inetExposure": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 5
+            },
+            "hostWhitelist": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
       }
     }
   }

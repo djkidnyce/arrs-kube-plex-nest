@@ -12,6 +12,38 @@ global:
   pgid: "1000"
   timezone: "America/New_York"   # used by all services
 
+# ── Service exposure ──────────────────────────────────────────────────────────
+# mode:
+#   nodePort     — services published on every node IP at a pinned port.
+#                  Works anywhere, including networks where MetalLB's L2 ARP
+#                  announcements do not reach the client (common with Calico
+#                  VXLAN, where MetalLB may bind the overlay interface).
+#   loadBalancer — requires a working LB controller (MetalLB, cloud LB).
+#   clusterIP    — nothing published; reach UIs with `kubectl port-forward`.
+#
+# Anything set to expose: false stays ClusterIP regardless of mode.
+# NOTE: these UIs have full download and filesystem control. Enable each app's
+# own authentication before exposing it.
+expose:
+  mode: "nodePort"
+  plex: true          # required for clients and remote access
+  seerr: true         # request UI, usually shared with users
+  sabnzbd: false
+  sonarr: false
+  radarr: false
+  lidarr: false
+  tautulli: false
+
+  # Pinned nodePorts (valid range 30000-32767). Plex uses basePort+N directly
+  # so its published port matches what Plex advertises.
+  nodePorts:
+    seerr: 30055
+    sabnzbd: 30080
+    sonarr: 30089
+    radarr: 30078
+    lidarr: 30086
+    tautulli: 30081
+
 # ── NAS / TrueNAS SMB share ───────────────────────────────────────────────────
 # REQUIRED: nas.host must be set at deploy time (render fails without it).
 # The deploy scripts (deploy.sh / deploy.ps1) prompt for these values.
@@ -41,6 +73,21 @@ plex:
   basePort: 32400
   replicas: 2
   configStorageSize: "10Gi"   # per-replica; plex-config-plex-0, plex-config-plex-1
+  # Libraries created automatically by deploy.sh after each server is claimed
+  # (Plex stores libraries in its database, so this happens over the API, not
+  # via a config file). Types: movie | show | artist | photo.
+  # Paths must exist under the mounted media share.
+  libraries:
+    - name: "Movies"
+      type: "movie"
+      path: "/mnt/media/movies"
+    - name: "TV Shows"
+      type: "show"
+      path: "/mnt/media/tv"
+    - name: "Music"
+      type: "artist"
+      path: "/mnt/media/music"
+
   # Scratch space for active transcode sessions (disk-backed emptyDir).
   # Keeps large transient writes off the config PVC, which holds the SQLite
   # database and can otherwise fill mid-stream. Sized per concurrent 4K
@@ -118,6 +165,24 @@ initImage: "docker.io/library/busybox:1.37.0"
 sabnzbd:
   image: "lscr.io/linuxserver/sabnzbd:5.0.4-ls262"
   port: 8080
+
+  # SABnzbd rewrites sabnzbd.ini from memory on shutdown, so any edit made to
+  # a running instance is lost. These are applied by an init container BEFORE
+  # SABnzbd starts, which is the only reliable moment.
+  config:
+    seed: true
+    # HTTPS off: the *arrs connect over plain HTTP inside the cluster, and a
+    # self-signed cert here breaks them for no benefit.
+    enableHttps: false
+    # SABnzbd refuses clients it does not consider local. Behind a NodePort or
+    # LoadBalancer the source address is translated, so it sees "external".
+    #   0 = local only (default, blocks the UI when exposed)
+    #   4 = full interface + API   5 = full, login required
+    # Set a username and password in Config -> General when using 4 or 5.
+    inetExposure: 4
+    # Extra Host header values SABnzbd should accept. Cluster DNS names are
+    # added automatically; add node IPs or hostnames you browse to.
+    hostWhitelist: []
   configStorageSize: "5Gi"
   resources:
     requests:
@@ -211,6 +276,18 @@ clamav:
     limits:
       cpu: "2000m"
       memory: "4Gi"
+
+  # Scan reports written under the media share so they are readable from any
+  # SMB client. Set to "" to disable file reports.
+  reportDir: "/mnt/media/.clamav-reports"
+  keepReports: 30
+
+  # Signature updates on their own schedule, so scans start with current
+  # definitions and you can refresh without running a full scan.
+  definitions:
+    enabled: true
+    schedule: "0 */6 * * *"
+    timeZone: "America/New_York"
 
   daily:
     schedule: "30 2 * * *"        # 2:30 AM — scans files downloaded in last 24h

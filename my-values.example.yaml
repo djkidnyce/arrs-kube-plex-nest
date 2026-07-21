@@ -1,0 +1,99 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# my-values.example.yaml
+#
+# Copy this to my-values.yaml and edit it with your own settings:
+#
+#   cp my-values.example.yaml my-values.yaml
+#   ./deploy.sh -f my-values.yaml
+#     (or: helm upgrade --install akpn . -n media -f my-values.yaml)
+#
+# my-values.yaml is gitignored, so anything machine-specific — node IPs,
+# hostnames, share names — stays on your machine and never reaches the repo.
+# Only the keys you want to override need to be present.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── NAS ───────────────────────────────────────────────────────────────────────
+# Also settable with --set; deploy.sh prompts for these and caches them in
+# ~/.akpn-deploy.conf, so you usually do not need them here.
+nas:
+  host: "10.0.0.10"           # your NAS address
+  mediaShare: "media"         # SMB share name
+  mediaShareSize: "10Ti"      # Kubernetes quantity (Ti, Gi), not "10tb"
+
+# ── Which UIs to publish ──────────────────────────────────────────────────────
+# Enable each app's own authentication before exposing it: these interfaces
+# have full download and filesystem control.
+expose:
+  mode: "nodePort"            # nodePort | loadBalancer | clusterIP
+  plex: true
+  seerr: true
+  sabnzbd: false
+  sonarr: false
+  radarr: false
+  lidarr: false
+  tautulli: false
+
+  # Pinned ports, valid range 30000-32767. Plex publishes on basePort+N.
+  nodePorts:
+    seerr: 30055
+    sabnzbd: 30080
+    sonarr: 30089
+    radarr: 30078
+    lidarr: 30086
+    tautulli: 30081
+
+# ── SABnzbd ───────────────────────────────────────────────────────────────────
+sabnzbd:
+  config:
+    # Cluster DNS names (sabnzbd, sabnzbd.<ns>, ...) are always added
+    # automatically, which is what the *arrs use. Add anything else you browse
+    # to: the node IP or hostname you type into your browser.
+    hostWhitelist:
+      - "10.0.0.20"
+      - "my-k8s-node"
+    # 0 = local only (blocks the UI once published), 4 = full, 5 = full + login
+    inetExposure: 4
+
+# ── Plex ──────────────────────────────────────────────────────────────────────
+plex:
+  replicas: 2                 # independent servers, each with its own claim
+
+  # Created over the Plex API after each server is claimed. Paths must exist
+  # under the mounted media share.
+  libraries:
+    - name: "Movies"
+      type: "movie"           # movie | show | artist | photo
+      path: "/mnt/media/movies"
+    - name: "TV Shows"
+      type: "show"
+      path: "/mnt/media/tv"
+    - name: "Music"
+      type: "artist"
+      path: "/mnt/media/music"
+
+  # Raise if you run several concurrent 4K transcodes.
+  transcodeScratchSize: "20Gi"
+
+# ── VPN ───────────────────────────────────────────────────────────────────────
+vpn:
+  mode: "native"              # native = gluetun's built-in provider support
+  provider: "privado"         # mullvad, nordvpn, pia, ... see gluetun wiki
+  serverCountries: "United States"
+  # serverCities: ""
+  # serverHostnames: ""
+
+  # For a provider gluetun does not support natively:
+  # mode: "custom"
+  # customConfigFile: "your-server.ovpn"   # ONE file from --ovpn-dir
+
+# ── ClamAV ────────────────────────────────────────────────────────────────────
+clamav:
+  enabled: true
+  reportDir: "/mnt/media/.clamav-reports"   # "" disables file reports
+  keepReports: 30
+  definitions:
+    schedule: "0 */6 * * *"
+
+# ── Timezone ──────────────────────────────────────────────────────────────────
+global:
+  timezone: "America/New_York"

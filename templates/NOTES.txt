@@ -6,19 +6,63 @@
   SERVICES  (get IPs: kubectl get svc -n {{ .Release.Namespace }})
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  Plex ({{ .Values.plex.replicas }} independent servers — NOT autoscaled; Plex cannot cluster):
-{{- range $i := until (.Values.plex.replicas | int) }}
-    plex-{{ $i }}  →  <LB-IP>:{{ add $.Values.plex.basePort $i }}
+{{- $ip := "<NODE-IP>" }}
+{{- if eq .Values.expose.mode "nodePort" }}
+  Reach these on any node IP (kubectl get nodes -o wide):
+{{- else if eq .Values.expose.mode "loadBalancer" }}
+  Reach these on their LoadBalancer IPs (kubectl get svc -n {{ .Release.Namespace }}):
 {{- end }}
 
-  Overseerr (requests):    <LB-IP>:{{ .Values.seerr.port }}
+  Plex ({{ .Values.plex.replicas }} independent servers — Plex cannot cluster):
+{{- range $i := until (.Values.plex.replicas | int) }}
+{{- if eq $.Values.expose.mode "nodePort" }}
+    plex-{{ $i }}  →  http://{{ $ip }}:{{ add $.Values.plex.basePort $i }}/web
+{{- else }}
+    plex-{{ $i }}  →  <LB-IP>:{{ add $.Values.plex.basePort $i }}
+{{- end }}
+{{- end }}
 
-  Internal ClusterIP only (port-forward to access):
+{{- if .Values.expose.seerr }}
+{{- if eq .Values.expose.mode "nodePort" }}
+  Overseerr     →  http://{{ $ip }}:{{ .Values.expose.nodePorts.seerr }}
+{{- else }}
+  Overseerr     →  <LB-IP>:{{ .Values.seerr.port }}
+{{- end }}
+{{- end }}
+{{- if .Values.expose.sabnzbd }}
+  SABnzbd       →  http://{{ $ip }}:{{ .Values.expose.nodePorts.sabnzbd }}
+{{- end }}
+{{- if .Values.expose.sonarr }}
+  Sonarr        →  http://{{ $ip }}:{{ .Values.expose.nodePorts.sonarr }}
+{{- end }}
+{{- if .Values.expose.radarr }}
+  Radarr        →  http://{{ $ip }}:{{ .Values.expose.nodePorts.radarr }}
+{{- end }}
+{{- if .Values.expose.lidarr }}
+  Lidarr        →  http://{{ $ip }}:{{ .Values.expose.nodePorts.lidarr }}
+{{- end }}
+{{- if .Values.expose.tautulli }}
+  Tautulli      →  http://{{ $ip }}:{{ .Values.expose.nodePorts.tautulli }}
+{{- end }}
+
+  Not exposed (reach with kubectl port-forward):
+{{- if not .Values.expose.sabnzbd }}
     SABnzbd    kubectl port-forward svc/sabnzbd 8080:{{ .Values.sabnzbd.port }} -n {{ .Release.Namespace }}
+{{- end }}
+{{- if not .Values.expose.sonarr }}
     Sonarr     kubectl port-forward svc/sonarr 8989:{{ .Values.sonarr.port }} -n {{ .Release.Namespace }}
+{{- end }}
+{{- if not .Values.expose.radarr }}
     Radarr     kubectl port-forward svc/radarr 7878:{{ .Values.radarr.port }} -n {{ .Release.Namespace }}
+{{- end }}
+{{- if not .Values.expose.lidarr }}
     Lidarr     kubectl port-forward svc/lidarr 8686:{{ .Values.lidarr.port }} -n {{ .Release.Namespace }}
+{{- end }}
+{{- if not .Values.expose.tautulli }}
     Tautulli   kubectl port-forward svc/tautulli 8181:{{ .Values.tautulli.port }} -n {{ .Release.Namespace }}
+{{- end }}
+
+  Expose any of them with:  --set expose.<name>=true
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   FIRST-TIME SETUP
@@ -36,19 +80,15 @@
      kubectl rollout restart deployment/sabnzbd -n {{ .Release.Namespace }}
 {{- end }}
 
-2. Claim each Plex server SEPARATELY (tokens are single-use, 4-minute expiry):
-     a. Get a token at https://plex.tv/claim
-     b. kubectl create secret generic plex-claim --from-literal=token=<TOKEN> \
-          -n {{ .Release.Namespace }} --dry-run=client -o yaml | kubectl apply -f -
-     c. kubectl delete pod plex-0 -n {{ .Release.Namespace }}   (claims on restart)
-     d. Repeat a–c for plex-1 (fresh token, delete pod plex-1)
-   Remote access for plex-1+: set the custom public port ({{ .Values.plex.basePort }}+N)
-   in that server's Settings → Remote Access.
-{{- if gt (.Values.plex.replicas | int) 1 }}
-   NOTE: claim tokens expire in ~4 minutes and are single-use. A replica that
-   started without a valid token runs fine but shows as "unclaimed" until you
-   repeat steps a–c for it.
+2. Plex claim + libraries are handled by deploy.sh, which asks for one token
+   per server at the very end and creates these libraries over the API:
+{{- range .Values.plex.libraries }}
+     {{ .name }} ({{ .type }}) → {{ .path }}
 {{- end }}
+   To claim a server later, open its web UI and sign in, or:
+     kubectl create secret generic plex-claim --from-literal=token=<TOKEN> \
+       -n {{ .Release.Namespace }} --dry-run=client -o yaml | kubectl apply -f -
+     kubectl delete pod plex-N -n {{ .Release.Namespace }}
 
 3. On EACH Plex server after claiming, set the transcoder scratch dir:
      Settings → Transcoder → "Transcoder temporary directory" → /transcode
@@ -78,6 +118,14 @@
   Daily  quick scan:   {{ .Values.clamav.daily.schedule }} {{ .Values.clamav.daily.timeZone }}
   Monthly full scan:   {{ .Values.clamav.monthly.schedule }} {{ .Values.clamav.monthly.timeZone }}
   Notification type:   {{ .Values.clamav.notificationType }}
+
+{{- if .Values.clamav.definitions.enabled }}
+  Signature updates:   {{ .Values.clamav.definitions.schedule }} {{ .Values.clamav.definitions.timeZone }}
+    Update now:  kubectl create job --from=cronjob/clamav-definitions defs-now -n {{ .Release.Namespace }}
+{{- end }}
+{{- if .Values.clamav.reportDir }}
+  Scan reports:        {{ .Values.clamav.reportDir }} (last {{ .Values.clamav.keepReports }}, readable over SMB)
+{{- end }}
 
   Run a scan immediately:
     kubectl create job --from=cronjob/clamav-daily clamav-manual-$(date +%s) -n {{ .Release.Namespace }}

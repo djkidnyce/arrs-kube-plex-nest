@@ -89,6 +89,33 @@ spec:
               mountPath: /patched
       {{- end }}
 
+      {{- if .Values.sabnzbd.config.seed }}
+      {{- if ne .Values.vpn.mode "custom" }}
+      initContainers:
+      {{- end }}
+        # ── Seed SABnzbd config before it starts ──────────────────────────
+        - name: seed-sabnzbd-config
+          image: {{ .Values.initImage }}
+          imagePullPolicy: IfNotPresent
+          {{- include "akpn.restrictedContainerSecurity" . | nindent 10 }}
+          command: ["/bin/sh", "/seed/sab-seed.sh"]
+          envFrom:
+            - configMapRef:
+                name: sabnzbd-seed
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "16Mi"
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
+          volumeMounts:
+            - name: sabnzbd-config
+              mountPath: /config
+            - name: sab-seed
+              mountPath: /seed
+      {{- end }}
+
       containers:
         # ── 1. gluetun VPN ────────────────────────────────────────────────
         - name: gluetun
@@ -236,6 +263,15 @@ spec:
 
       # ── Volumes ──────────────────────────────────────────────────────────
       volumes:
+        {{- if .Values.sabnzbd.config.seed }}
+        - name: sab-seed
+          configMap:
+            name: sabnzbd-seed
+            items:
+              - key: sab-seed.sh
+                path: sab-seed.sh
+                mode: 0555
+        {{- end }}
         - name: sabnzbd-config
           persistentVolumeClaim:
             claimName: sabnzbd-config

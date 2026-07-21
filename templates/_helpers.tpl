@@ -114,3 +114,18 @@ readinessProbe:
   initialDelaySeconds: 15
   periodSeconds: 10
 {{- end }}
+
+{{/*
+Resolve a Service type from the expose settings.
+  {{ include "akpn.serviceType" (dict "svc" "sonarr" "root" $) }}
+*/}}
+{{- define "akpn.serviceType" -}}
+{{- $e := .root.Values.expose -}}
+{{- $types := dict "nodePort" "NodePort" "loadBalancer" "LoadBalancer" "clusterIP" "ClusterIP" -}}
+{{- if index $e .svc -}}
+{{- default "ClusterIP" (index $types $e.mode) -}}
+{{- else -}}
+ClusterIP
+{{- end -}}
+{{- end }}
+

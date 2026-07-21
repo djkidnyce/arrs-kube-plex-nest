@@ -2,6 +2,72 @@
 
 All notable changes to this Helm chart are documented here.
 
+## [1.1.5] - 2026-07-21
+
+Captures everything discovered during the first production deployment. Three
+chart bugs, plus configuration that previously required manual intervention.
+
+### Fixed
+- **Overseerr was never persisting its database.** The config PVC was mounted
+  at `/app/config`, the path used by the upstream image, but this chart runs
+  the LinuxServer build, which uses `/config`. Overseerr wrote to ephemeral
+  container storage and warned about it on every start; all settings were lost
+  on each restart. Now mounted at `/config`.
+- **SABnzbd could not be configured reliably.** It rewrites `sabnzbd.ini` from
+  memory on shutdown, so edits to a running instance are discarded. Settings
+  are now applied by an init container before SABnzbd starts:
+  `enable_https = 0` (the *arrs use plain HTTP internally), `inet_exposure`
+  (default 4, since NodePort and LoadBalancer translate the source address and
+  SABnzbd otherwise refuses every client as "external"), and `host_whitelist`
+  seeded with cluster DNS names plus anything in
+  `sabnzbd.config.hostWhitelist`.
+- **Exposed services were unreachable even when published.** Publishing a port
+  without a matching NetworkPolicy meant default-deny dropped the traffic
+  silently. Each exposed service now renders its own ingress policy.
+
+### Added
+- **`expose` values block.** `expose.mode` of `nodePort` (new default),
+  `loadBalancer`, or `clusterIP`, with per-service toggles and pinned
+  nodePorts. NodePort is the default because MetalLB's L2 announcements do not
+  reach clients on every network, while NodePort works anywhere.
+- **ClamAV scan reports** written to `clamav.reportDir` on the media share
+  (default `/mnt/media/.clamav-reports`, last `clamav.keepReports` kept), so
+  scan history is readable from any SMB client with no UI required.
+- **`clamav-definitions` CronJob** updating signatures on its own schedule
+  (default every 6 hours), so scans start current and definitions can be
+  refreshed without running a scan.
+- **`plex.libraries`** declared in values and created automatically over the
+  Plex API after each server is claimed. Libraries live in Plex's database, so
+  the API is the only supported path.
+- deploy.sh asks how many Plex servers to run, then collects one claim token
+  per server at the very end, applying each immediately and creating that
+  server's libraries. Tokens are single-use with a ~4 minute expiry, so they
+  are requested only when they can be consumed at once.
+- `my-values.example.yaml`: a documented template for machine-specific
+  settings. `my-values.yaml` is already gitignored, so node IPs and hostnames
+  stay local rather than being committed.
+- README: exposing UIs, MetalLB interface pinning with Calico VXLAN, SABnzbd
+  configuration behavior, changing `nas.host` after install (the StorageClass
+  and PV are immutable), and ClamAV reporting.
+
+### Testing
+- tests/test_sab_seed.sh: 12 checks covering the seed script against real
+  sabnzbd.ini shapes. Found and fixed two bugs before release: a trailing
+  comma in SABnzbd's own whitelist produced an empty entry
+  (`download,,sabnzbd`), and a fresh install left settings unapplied until a
+  second restart because the config file did not exist yet. The script now
+  writes a minimal config on first boot, verified readable by configobj,
+  SABnzbd's own parser.
+- tests/render.py `--set` now understands list index syntax (`key[0]=value`),
+  without which array values were silently ignored by the test harness.
+- tests/validate.py: 231 checks, up from 191. New guards cover the Overseerr
+  config path, the SABnzbd seed init container, exposed services having both a
+  published port and a matching ingress policy, nodePorts being pinned and in
+  range, and the plex-libraries ConfigMap.
+- tests/render.py gained `and`, `or`, `printf`, `concat`, `join`, `append`,
+  `index`, map-ranging, `$` root access, and Go string-escape handling.
+- All four exposure modes and both VPN modes render and validate.
+
 ## [1.1.4] - 2026-07-20
 
 First release validated against a real cluster (kubeadm 1.36, Calico, MetalLB,

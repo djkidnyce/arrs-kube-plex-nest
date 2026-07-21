@@ -52,7 +52,35 @@ spec:
           port: 32400
 
 ---
-# 3. Overseerr — external ingress on 5055
+# 3. One ingress policy per exposed service. Without these, a NodePort or
+#    LoadBalancer publishes the port but default-deny silently drops traffic.
+{{- $ports := dict "sabnzbd" .Values.sabnzbd.port "sonarr" .Values.sonarr.port "radarr" .Values.radarr.port "lidarr" .Values.lidarr.port "tautulli" .Values.tautulli.port }}
+{{- $ns := .Release.Namespace }}
+{{- $labels := include "akpn.labels" . }}
+{{- range $svc, $port := $ports }}
+{{- if index $.Values.expose $svc }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $svc }}-external-ingress
+  namespace: {{ $ns }}
+  labels:
+    app: {{ $svc }}
+    {{- $labels | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: {{ $svc }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: {{ $port }}
+---
+{{- end }}
+{{- end }}
+# 4. Overseerr — external ingress on 5055
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -73,7 +101,7 @@ spec:
           port: {{ .Values.seerr.port }}
 
 ---
-# 4. SABnzbd — only the *arrs may reach the download API
+# 5. SABnzbd — the *arrs may always reach the download API
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -100,7 +128,7 @@ spec:
           port: {{ .Values.sabnzbd.port }}
 
 ---
-# 5. *arrs — Overseerr may reach their APIs
+# 6. *arrs — Overseerr may reach their APIs
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

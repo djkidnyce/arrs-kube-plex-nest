@@ -59,8 +59,11 @@ spec:
             initialDelaySeconds: 15
             periodSeconds: 10
           volumeMounts:
+            # LSIO's overseerr image uses /config. The upstream sctx image uses
+            # /app/config; mounting there leaves Overseerr writing its database
+            # to ephemeral container storage, which is lost on every restart.
             - name: config
-              mountPath: /app/config
+              mountPath: /config
       volumes:
         - name: config
           persistentVolumeClaim:

@@ -33,6 +33,7 @@ spec:
 {{- $basePort := .Values.plex.basePort | int }}
 {{- $ns := .Release.Namespace }}
 {{- $labels := include "akpn.labels" . }}
+{{- $root := . }}
 {{- range $i := until (.Values.plex.replicas | int) }}
 ---
 apiVersion: v1
@@ -46,9 +47,9 @@ metadata:
     {{- $labels | nindent 4 }}
   annotations:
     # Uncomment to pin a specific IP (e.g. on MetalLB):
-    # metallb.universe.tf/loadBalancerIPs: "192.168.5.{{ add 100 $i }}"
+    # metallb.universe.tf/loadBalancerIPs: "192.168.1.{{ add 200 $i }}"
 spec:
-  type: LoadBalancer
+  type: {{ include "akpn.serviceType" (dict "svc" "plex" "root" $root) }}
   # Route exclusively to this pod, not the whole StatefulSet
   selector:
     app: plex
@@ -58,4 +59,7 @@ spec:
       port: {{ add $basePort $i }}
       targetPort: 32400
       protocol: TCP
+      {{- if and $root.Values.expose.plex (eq $root.Values.expose.mode "nodePort") }}
+      nodePort: {{ add $basePort $i }}
+      {{- end }}
 {{- end }}

@@ -56,6 +56,7 @@ save_cache() {
 NAS_HOST="${NAS_HOST:-}"
 NAS_SHARE="${NAS_SHARE:-}"
 NAS_SHARE_SIZE="${NAS_SHARE_SIZE:-}"
+PLEX_REPLICAS="${PLEX_REPLICAS:-}"
 SMB_USER="${SMB_USER:-}"
 VPN_USER="${VPN_USER:-}"
 EOF
@@ -235,6 +236,19 @@ echo
 prompt_or_keep_password SMB_PASS "smb-credentials" "SMB password"
 echo
 
+# ── Plex servers ─────────────────────────────────────────────────────────────
+echo -e "  ${BOLD}Plex${RESET}"
+echo "  Plex cannot cluster, so each server is INDEPENDENT: its own config,"
+echo "  its own claim token, its own port (32400, 32401, ...). All of them"
+echo "  serve the same media share."
+confirm_or_prompt PLEX_REPLICAS "How many Plex servers" optional
+PLEX_REPLICAS="${PLEX_REPLICAS:-2}"
+if ! [[ "$PLEX_REPLICAS" =~ ^[0-9]+$ ]] || [[ "$PLEX_REPLICAS" -lt 1 ]]; then
+  warn "Invalid count '${PLEX_REPLICAS}' — using 2."
+  PLEX_REPLICAS=2
+fi
+echo
+
 # ── VPN credentials ──────────────────────────────────────────────────────────
 echo -e "  ${BOLD}VPN Credentials${RESET}"
 confirm_or_prompt VPN_USER "VPN username"
@@ -364,6 +378,7 @@ HELM_CMD=(
   --set "nas.host=${NAS_HOST}"
   --set "nas.mediaShare=${NAS_SHARE}"
   --set "nas.mediaShareSize=${NAS_SHARE_SIZE}"
+  --set "plex.replicas=${PLEX_REPLICAS}"
   "${EXTRA_FLAGS[@]}"
 )
 
@@ -387,50 +402,117 @@ if "${HELM_CMD[@]}"; then
     echo -e "${GREEN}${BOLD}✓ Helm deploy complete — namespace '${NAMESPACE}'${RESET}"
     echo
     show_namespace_status
-    # ── Plex claim token — asked LAST, on purpose ─────────────────────────
-    # Tokens are single-use and expire in ~4 minutes, so prompting for one
-    # before a multi-minute helm install guarantees it is dead on arrival.
-    banner "Plex claim token (optional)"
-    echo "  Plex claim tokens are single-use and expire in ~4 MINUTES, so this"
-    echo "  is asked last, once everything else is deployed."
+    # ── Plex claim tokens — asked LAST, one per server ────────────────────
+    # Tokens are single-use and expire in ~4 minutes, so they are collected
+    # after the deploy completes, and each is consumed immediately.
+    banner "Claiming ${PLEX_REPLICAS} Plex server(s)"
+    echo "  Each server needs its OWN token. They are single-use and expire in"
+    echo "  about 4 MINUTES, so fetch each one right before you paste it."
     echo
-    echo "  Get a fresh token now at:  https://plex.tv/claim"
-    echo "  Press Enter to skip — you can always claim a server later by"
-    echo "  visiting its web UI directly."
+    echo "    https://plex.tv/claim"
     echo
-    read -rp "  Plex claim token: " PLEX_TOKEN
+    echo "  Press Enter at any prompt to skip that server; you can claim it"
+    echo "  later from its web UI."
     echo
 
-    if [[ -n "${PLEX_TOKEN:-}" ]]; then
-      if kubectl create secret generic plex-claim \
-        --from-literal=token="$PLEX_TOKEN" \
-        --namespace="$NAMESPACE" \
-        --dry-run=client -o yaml | kubectl apply -f - ; then
-        success "plex-claim updated."
-        info "Restarting plex-0 so it picks the token up now (token is single-use)..."
-        kubectl delete pod plex-0 -n "$NAMESPACE" &>/dev/null 2>&1 \
-          && success "plex-0 restarting — it will claim on boot." \
-          || warn "Could not restart plex-0; delete the pod manually to claim."
+    # Library definitions rendered from values.yaml into a ConfigMap.
+    PLEX_LIBS="$(kubectl get configmap plex-libraries -n "$NAMESPACE" \
+      -o jsonpath='{.data.libraries}' 2>/dev/null || true)"
+
+    NODE_IP="$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null | awk '{print $1}')"
+
+    plex_wait_ready() {
+      local pod="$1" tries=0
+      printf '  Waiting for %s' "$pod"
+      while [[ $tries -lt 60 ]]; do
+        if kubectl get pod "$pod" -n "$NAMESPACE" \
+             -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null | grep -q true; then
+          echo " — ready."; return 0
+        fi
+        printf '.'; sleep 5; tries=$((tries + 1))
+      done
+      echo " — timed out."; return 1
+    }
+
+    plex_token_for() {
+      # Read the server's own auth token from its Preferences.xml
+      kubectl exec "$1" -n "$NAMESPACE" -- sh -c \
+        'grep -o "PlexOnlineToken=\"[^\"]*\"" "/config/Library/Application Support/Plex Media Server/Preferences.xml" 2>/dev/null | head -1 | cut -d\" -f2' \
+        2>/dev/null | tr -d '\r\n'
+    }
+
+    plex_create_libraries() {
+      local pod="$1" port="$2" token="$3"
+      [[ -z "$PLEX_LIBS" || -z "$token" ]] && return 0
+      echo "  Creating libraries on ${pod}:"
+      while IFS='|' read -r lname ltype lpath; do
+        [[ -z "${lname// }" ]] && continue
+        lname="$(echo "$lname" | sed 's/^ *//; s/ *$//')"
+        ltype="$(echo "$ltype" | sed 's/^ *//; s/ *$//')"
+        lpath="$(echo "$lpath" | sed 's/^ *//; s/ *$//')"
+        case "$ltype" in
+          movie) agent="tv.plex.agents.movie"; scanner="Plex Movie" ;;
+          show)  agent="tv.plex.agents.series"; scanner="Plex TV Series" ;;
+          artist) agent="tv.plex.agents.music"; scanner="Plex Music" ;;
+          photo) agent="tv.plex.agents.photo"; scanner="Plex Photo Scanner" ;;
+          *) warn "    unknown library type '${ltype}' for ${lname} — skipping"; continue ;;
+        esac
+        if kubectl exec "$pod" -n "$NAMESPACE" -- sh -c \
+            "curl -sf -X POST 'http://127.0.0.1:32400/library/sections' \
+              --data-urlencode 'name=${lname}' \
+              --data-urlencode 'type=${ltype}' \
+              --data-urlencode 'agent=${agent}' \
+              --data-urlencode 'scanner=${scanner}' \
+              --data-urlencode 'language=en-US' \
+              --data-urlencode 'location=${lpath}' \
+              --data-urlencode 'X-Plex-Token=${token}' -o /dev/null" 2>/dev/null; then
+          success "    ${lname} (${ltype}) → ${lpath}"
+        else
+          warn "    ${lname} — not created (path may not exist, or it already exists)"
+        fi
+      done <<< "$PLEX_LIBS"
+    }
+
+    for ((i = 0; i < PLEX_REPLICAS; i++)); do
+      pod="plex-${i}"
+      port=$((32400 + i))
+      echo -e "  ${BOLD}${pod}${RESET}  (port ${port})"
+      read -rp "  Claim token for ${pod} (Enter to skip): " PLEX_TOKEN
+      if [[ -z "${PLEX_TOKEN:-}" ]]; then
+        info "  ${pod} — skipped; claim later at http://${NODE_IP}:${port}/web"
         echo
-        echo "  For additional Plex servers (plex-1, ...), repeat with a FRESH"
-        echo "  token each time, then delete that specific pod:"
-        echo "    kubectl delete pod plex-1 -n $NAMESPACE"
-      else
-        warn "plex-claim create failed — claim manually via the Plex web UI."
+        continue
       fi
-    else
-      info "Plex claim skipped — claim later via each server's web UI."
-    fi
+      if kubectl create secret generic plex-claim \
+           --from-literal=token="$PLEX_TOKEN" \
+           --namespace="$NAMESPACE" \
+           --dry-run=client -o yaml | kubectl apply -f - &>/dev/null; then
+        kubectl delete pod "$pod" -n "$NAMESPACE" &>/dev/null || true
+        if plex_wait_ready "$pod"; then
+          sleep 10
+          tok="$(plex_token_for "$pod")"
+          if [[ -n "$tok" ]]; then
+            success "  ${pod} claimed."
+            plex_create_libraries "$pod" "$port" "$tok"
+          else
+            warn "  ${pod} started but no token found — the claim may have expired."
+            warn "  Claim it directly at http://${NODE_IP}:${port}/web"
+          fi
+        fi
+      else
+        warn "  ${pod} — could not write plex-claim secret."
+      fi
+      echo
+    done
 
     echo
     echo -e "  ${BOLD}Next steps:${RESET}"
     echo "  1. Watch pods settle:"
     echo "       kubectl get pods -n $NAMESPACE -w"
-    echo "  2. Get service IPs:"
-    echo "       kubectl get svc -n $NAMESPACE"
-    echo "  3. Set each Plex server's transcoder dir to /transcode, and wire"
-    echo "     SABnzbd into the *arrs. Full instructions:"
+    echo "  2. Service URLs and everything else:"
     echo "       helm get notes akpn -n $NAMESPACE"
+    echo "  3. On each Plex server, set Settings → Transcoder → temporary"
+    echo "     directory to /transcode."
   fi
 else
   echo

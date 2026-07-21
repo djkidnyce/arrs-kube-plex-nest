@@ -132,7 +132,8 @@ def main(path):
             check("OPENVPN_USER" in env and "OPENVPN_PASSWORD" in env,
                   f"native mode ({provider}): OPENVPN_USER/PASSWORD wired")
             check(occ is None, "native mode: no OPENVPN_CUSTOM_CONFIG")
-            check(not spec.get("initContainers"), "native mode: no .ovpn init container")
+            init_names = [c["name"] for c in spec.get("initContainers", [])]
+            check("patch-ovpn-creds" not in init_names, "native mode: no .ovpn patch init container")
             for vol in spec.get("volumes", []):
                 check(vol["name"] != "vpn-cred-file",
                       "native mode: openvpn.cred not mounted (missing key hangs the pod)")
@@ -143,6 +144,57 @@ def main(path):
             if probe in sab:
                 check("httpGet" not in sab[probe],
                       f"sabnzbd {probe} is not HTTP (/api needs an API key)")
+
+    # ── v1.1.5 guards ────────────────────────────────────────────────────
+    svcs = {d["metadata"]["name"]: d for d in docs if d["kind"] == "Service"}
+    cms = {d["metadata"]["name"] for d in docs if d["kind"] == "ConfigMap"}
+
+    # Overseerr must mount /config (LSIO path); /app/config silently discards data
+    for d in workloads:
+        if d["metadata"]["name"] == "seerr":
+            mounts = [m["mountPath"] for m in pod_spec(d)["containers"][0].get("volumeMounts", [])]
+            check("/config" in mounts, "seerr: config mounted at /config (LSIO path)")
+            check("/app/config" not in mounts, "seerr: NOT mounted at /app/config")
+
+    # SABnzbd settings are seeded by an init container, never edited live
+    for d in workloads:
+        if d["metadata"]["name"] != "sabnzbd":
+            continue
+        inits = [c["name"] for c in pod_spec(d).get("initContainers", [])]
+        # Seeding is optional, but the ConfigMap and the init container must
+        # always agree: one without the other is a broken render.
+        seed_cm = "sabnzbd-seed" in cms
+        seed_init = "seed-sabnzbd-config" in inits
+        check(seed_cm == seed_init,
+              f"sabnzbd: seed ConfigMap ({seed_cm}) and init container ({seed_init}) agree")
+        if seed_init:
+            sc = [c for c in pod_spec(d)["initContainers"] if c["name"] == "seed-sabnzbd-config"][0]
+            mounts = [m["mountPath"] for m in sc["volumeMounts"]]
+            check("/config" in mounts, "sabnzbd seed: writes to the config PVC")
+
+    # exposed services publish a port AND have a matching ingress policy
+    nps = [d for d in docs if d["kind"] == "NetworkPolicy"]
+    allowed_ports = set()
+    for p in nps:
+        for rule in p["spec"].get("ingress") or []:
+            if "from" not in rule:
+                for prt in rule.get("ports", []):
+                    allowed_ports.add(prt["port"])
+    for name, svc in svcs.items():
+        stype = svc["spec"].get("type", "ClusterIP")
+        if stype in ("NodePort", "LoadBalancer"):
+            for prt in svc["spec"]["ports"]:
+                tp = prt.get("targetPort", prt["port"])
+                check(tp in allowed_ports,
+                      f"{name}: exposed as {stype}, ingress allowed on {tp}")
+            if stype == "NodePort":
+                for prt in svc["spec"]["ports"]:
+                    np = prt.get("nodePort")
+                    check(np is not None and 30000 <= np <= 32767,
+                          f"{name}: nodePort {np} pinned and in range")
+
+    # plex libraries are published for deploy.sh to consume
+    check("plex-libraries" in cms, "plex-libraries ConfigMap rendered")
 
     # every long-running app has a startupProbe so slow boots aren't liveness-killed
     for d in workloads:

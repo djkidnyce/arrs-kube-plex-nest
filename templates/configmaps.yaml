@@ -53,6 +53,52 @@ data:
   SCAN_DIR:  "/mnt/media"
   DB_PATH:   "/var/lib/clamav"
   MAX_FILE_SIZE: {{ .Values.clamav.maxFileSize | quote }}
+  REPORT_DIR: {{ .Values.clamav.reportDir | quote }}
+  KEEP_REPORTS: {{ .Values.clamav.keepReports | quote }}
   scan.sh: |
 {{ .Files.Get "files/scripts/scan.sh" | indent 4 }}
+  freshclam.sh: |
+{{ .Files.Get "files/scripts/freshclam.sh" | indent 4 }}
+{{- end }}
+
+{{- if .Values.sabnzbd.config.seed }}
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# ConfigMap: sabnzbd-seed — settings applied by an init container BEFORE
+# SABnzbd starts. Editing a running SABnzbd does not work: it rewrites
+# sabnzbd.ini from memory on shutdown and discards external changes.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sabnzbd-seed
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "akpn.labels" . | nindent 4 }}
+data:
+  SEED_ENABLED: "true"
+  ENABLE_HTTPS: {{ if .Values.sabnzbd.config.enableHttps }}"1"{{ else }}"0"{{ end }}
+  INET_EXPOSURE: {{ .Values.sabnzbd.config.inetExposure | quote }}
+  HOST_WHITELIST: {{ concat (list "sabnzbd" (printf "sabnzbd.%s" .Release.Namespace) (printf "sabnzbd.%s.svc" .Release.Namespace) (printf "sabnzbd.%s.svc.cluster.local" .Release.Namespace)) .Values.sabnzbd.config.hostWhitelist | join "," | quote }}
+  sab-seed.sh: |
+{{ .Files.Get "files/scripts/sab-seed.sh" | indent 4 }}
+{{- end }}
+
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# ConfigMap: plex-libraries — consumed by deploy.sh after each server is
+# claimed, to create libraries over the Plex API (libraries live in Plex's
+# database, so they cannot be seeded from a config file).
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: plex-libraries
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "akpn.labels" . | nindent 4 }}
+data:
+  libraries: |
+{{- range .Values.plex.libraries }}
+    {{ .name }}|{{ .type }}|{{ .path }}
 {{- end }}

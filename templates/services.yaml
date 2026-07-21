@@ -13,13 +13,16 @@ metadata:
     app: sabnzbd
     {{- include "akpn.labels" . | nindent 4 }}
 spec:
-  type: ClusterIP
+  type: {{ include "akpn.serviceType" (dict "svc" "sabnzbd" "root" $) }}
   selector:
     app: sabnzbd
   ports:
     - name: http
       port: {{ .Values.sabnzbd.port }}
       targetPort: {{ .Values.sabnzbd.port }}
+{{- if and .Values.expose.sabnzbd (eq .Values.expose.mode "nodePort") }}
+      nodePort: {{ .Values.expose.nodePorts.sabnzbd }}
+{{- end }}
 
 ---
 # Sonarr
@@ -32,13 +35,16 @@ metadata:
     app: sonarr
     {{- include "akpn.labels" . | nindent 4 }}
 spec:
-  type: ClusterIP
+  type: {{ include "akpn.serviceType" (dict "svc" "sonarr" "root" $) }}
   selector:
     app: sonarr
   ports:
     - name: http
       port: {{ .Values.sonarr.port }}
       targetPort: {{ .Values.sonarr.port }}
+{{- if and .Values.expose.sonarr (eq .Values.expose.mode "nodePort") }}
+      nodePort: {{ .Values.expose.nodePorts.sonarr }}
+{{- end }}
 
 ---
 # Radarr
@@ -51,13 +57,16 @@ metadata:
     app: radarr
     {{- include "akpn.labels" . | nindent 4 }}
 spec:
-  type: ClusterIP
+  type: {{ include "akpn.serviceType" (dict "svc" "radarr" "root" $) }}
   selector:
     app: radarr
   ports:
     - name: http
       port: {{ .Values.radarr.port }}
       targetPort: {{ .Values.radarr.port }}
+{{- if and .Values.expose.radarr (eq .Values.expose.mode "nodePort") }}
+      nodePort: {{ .Values.expose.nodePorts.radarr }}
+{{- end }}
 
 ---
 # Lidarr
@@ -70,13 +79,16 @@ metadata:
     app: lidarr
     {{- include "akpn.labels" . | nindent 4 }}
 spec:
-  type: ClusterIP
+  type: {{ include "akpn.serviceType" (dict "svc" "lidarr" "root" $) }}
   selector:
     app: lidarr
   ports:
     - name: http
       port: {{ .Values.lidarr.port }}
       targetPort: {{ .Values.lidarr.port }}
+{{- if and .Values.expose.lidarr (eq .Values.expose.mode "nodePort") }}
+      nodePort: {{ .Values.expose.nodePorts.lidarr }}
+{{- end }}
 
 ---
 # Overseerr (external-facing — see NetworkPolicy)
@@ -89,13 +101,16 @@ metadata:
     app: seerr
     {{- include "akpn.labels" . | nindent 4 }}
 spec:
-  type: LoadBalancer
+  type: {{ include "akpn.serviceType" (dict "svc" "seerr" "root" $) }}
   selector:
     app: seerr
   ports:
     - name: http
       port: {{ .Values.seerr.port }}
       targetPort: {{ .Values.seerr.port }}
+{{- if and .Values.expose.seerr (eq .Values.expose.mode "nodePort") }}
+      nodePort: {{ .Values.expose.nodePorts.seerr }}
+{{- end }}
 
 ---
 # Tautulli
@@ -108,10 +123,13 @@ metadata:
     app: tautulli
     {{- include "akpn.labels" . | nindent 4 }}
 spec:
-  type: ClusterIP
+  type: {{ include "akpn.serviceType" (dict "svc" "tautulli" "root" $) }}
   selector:
     app: tautulli
   ports:
     - name: http
       port: {{ .Values.tautulli.port }}
       targetPort: {{ .Values.tautulli.port }}
+{{- if and .Values.expose.tautulli (eq .Values.expose.mode "nodePort") }}
+      nodePort: {{ .Values.expose.nodePorts.tautulli }}
+{{- end }}

@@ -96,10 +96,22 @@ spec:
                     secretKeyRef:
                       name: clamav-notify
                       key: webhook-url
+                - name: REPORT_DIR
+                  valueFrom:
+                    configMapKeyRef:
+                      name: clamav-config
+                      key: REPORT_DIR
+                - name: KEEP_REPORTS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: clamav-config
+                      key: KEEP_REPORTS
               volumeMounts:
                 - name: media
                   mountPath: /mnt/media
+                  {{- if not .Values.clamav.reportDir }}
                   readOnly: true
+                  {{- end }}
                 - name: definitions
                   mountPath: /var/lib/clamav
                 - name: scan-script
@@ -205,10 +217,22 @@ spec:
                     secretKeyRef:
                       name: clamav-notify
                       key: webhook-url
+                - name: REPORT_DIR
+                  valueFrom:
+                    configMapKeyRef:
+                      name: clamav-config
+                      key: REPORT_DIR
+                - name: KEEP_REPORTS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: clamav-config
+                      key: KEEP_REPORTS
               volumeMounts:
                 - name: media
                   mountPath: /mnt/media
+                  {{- if not .Values.clamav.reportDir }}
                   readOnly: true
+                  {{- end }}
                 - name: definitions
                   mountPath: /var/lib/clamav
                 - name: scan-script
@@ -231,4 +255,90 @@ spec:
                   - key: scan.sh
                     path: scan.sh
                     mode: 0555
+
+{{- if .Values.clamav.definitions.enabled }}
+---
+# ── Signature updates ─────────────────────────────────────────────────────────
+# Runs on its own schedule so scans start with current definitions, and so a
+# refresh can be triggered without running a full scan:
+#   kubectl create job --from=cronjob/clamav-definitions defs-now -n <ns>
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: clamav-definitions
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: clamav
+    scan-type: definitions
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.clamav.definitions.schedule | quote }}
+  timeZone: {{ .Values.clamav.definitions.timeZone | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 1800
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app: clamav
+            scan-type: definitions
+        spec:
+          restartPolicy: OnFailure
+          nodeSelector:
+            kubernetes.io/os: linux
+          automountServiceAccountToken: false
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            fsGroup: 1000
+          containers:
+            - name: freshclam
+              image: {{ .Values.clamav.image }}
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              command: ["/bin/sh", "/scripts/freshclam.sh"]
+              env:
+                - name: DB_PATH
+                  valueFrom:
+                    configMapKeyRef:
+                      name: clamav-config
+                      key: DB_PATH
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "512Mi"
+                limits:
+                  cpu: "1000m"
+                  memory: "2Gi"
+              volumeMounts:
+                - name: definitions
+                  mountPath: /var/lib/clamav
+                - name: scan-script
+                  mountPath: /scripts
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: definitions
+              persistentVolumeClaim:
+                claimName: clamav-definitions
+            - name: tmp
+              emptyDir: {}
+            - name: scan-script
+              configMap:
+                name: clamav-config
+                items:
+                  - key: freshclam.sh
+                    path: freshclam.sh
+                    mode: 0555
+{{- end }}
 {{- end }}

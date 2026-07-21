@@ -17,15 +17,36 @@ def load_values(sets):
         key, _, val = kv.partition("=")
         cur = values
         parts = key.split(".")
+
+        def descend(container, part, make):
+            """Handle both plain keys and list indices like name[0]."""
+            m = re.match(r"^([^\[]+)\[(\d+)\]$", part)
+            if not m:
+                if isinstance(container, dict):
+                    if make and part not in container:
+                        container[part] = {}
+                    return container, part
+                return container, part
+            name, idx = m.group(1), int(m.group(2))
+            lst = container.setdefault(name, [])
+            if not isinstance(lst, list):
+                lst = []
+                container[name] = lst
+            while len(lst) <= idx:
+                lst.append({})
+            return lst, idx
+
         for p in parts[:-1]:
-            cur = cur.setdefault(p, {})
+            cur, k = descend(cur, p, True)
+            cur = cur[k]
         if val in ("true", "false"):
             v = val == "true"
         elif re.fullmatch(r"-?\d+", val):
             v = int(val)
         else:
             v = val
-        cur[parts[-1]] = v
+        cur, k = descend(cur, parts[-1], False)
+        cur[k] = v
     return values
 
 TOKEN_RE = re.compile(r"\{\{-?\s*(.*?)\s*-?\}\}", re.S)
@@ -135,11 +156,18 @@ class Renderer:
         if expr.startswith("(") and expr.endswith(")"):
             return self.eval_expr(expr[1:-1], ctx, dot)
         if expr.startswith('"'):
-            return expr[1:-1]
+            return expr[1:-1].encode().decode("unicode_escape")
         if re.fullmatch(r"-?\d+", expr):
             return int(expr)
         if expr == ".":
             return dot
+        if expr == "$":
+            return self.root
+        if expr.startswith("$."):
+            v = self.root
+            for part in expr[2:].split("."):
+                v = v[part]
+            return v
         if expr.startswith("$"):
             name = expr.split(".")[0]
             if name not in ctx:
@@ -173,6 +201,37 @@ class Renderer:
         if fn == "include":
             name, arg = vals[0], vals[1] if len(vals) > 1 else dot
             return self.render_nodes(self.defines[name], ctx={}, dot=arg).strip("\n")
+        if fn == "and":
+            out = True
+            for v in vals:
+                if v in (None, "", 0, [], {}) or v is False:
+                    return v
+                out = v
+            return out
+        if fn == "or":
+            for v in vals:
+                if not (v in (None, "", 0, [], {}) or v is False):
+                    return v
+            return vals[-1] if vals else False
+        if fn == "printf":
+            # Go verbs -> Python: %v (default) and %d/%s are all string-safe here
+            fmt = vals[0].replace("%v", "%s")
+            return fmt % tuple(vals[1:]) if len(vals) > 1 else fmt
+        if fn == "concat":
+            out = []
+            for v in vals:
+                out.extend(v if isinstance(v, list) else [v])
+            return out
+        if fn == "join":
+            sep, lst = vals[0], vals[1]
+            return sep.join(str(x) for x in lst)
+        if fn == "append":
+            return list(vals[0]) + [vals[1]]
+        if fn == "index":
+            v = vals[0]
+            for k in vals[1:]:
+                v = v[k]
+            return v
         if fn == "eq":
             return vals[0] == vals[1]
         if fn == "ne":
@@ -266,7 +325,7 @@ class Renderer:
                 trim_left()
             if kind == "action":
                 expr = node[1].strip()
-                m = re.match(r"^(\$[A-Za-z0-9_]+)\s*:=\s*(.+)$", expr, re.S)
+                m = re.match(r"^(\$[A-Za-z0-9_]+)\s*:?=\s*(.+)$", expr, re.S)
                 if m:
                     ctx[m.group(1)] = self.eval_expr(m.group(2), ctx, dot)
                 elif expr.startswith("/*"):
@@ -289,7 +348,19 @@ class Renderer:
                     emit(self.render_nodes(elsebody, dict(ctx), dot))
             elif kind == "range":
                 spec, body = node[1], node[2]
-                m = re.match(r"^(\$[A-Za-z0-9_]+)\s*:=\s*(.+)$", spec, re.S)
+                mm = re.match(r"^(\$[A-Za-z0-9_]+)\s*,\s*(\$[A-Za-z0-9_]+)\s*:?=\s*(.+)$", spec, re.S)
+                if mm:
+                    kvar, vvar, coll = mm.group(1), mm.group(2), self.eval_expr(mm.group(3), ctx, dot)
+                    pieces = []
+                    items = coll.items() if isinstance(coll, dict) else enumerate(coll or [])
+                    for k, v in items:
+                        c2 = dict(ctx); c2[kvar] = k; c2[vvar] = v
+                        pieces.append(self.render_nodes(body, c2, dot))
+                    emit("".join(pieces))
+                    if rt:
+                        pending_rtrim[0] = True
+                    continue
+                m = re.match(r"^(\$[A-Za-z0-9_]+)\s*:?=\s*(.+)$", spec, re.S)
                 pieces = []
                 if m:
                     var, coll = m.group(1), self.eval_expr(m.group(2), ctx, dot)

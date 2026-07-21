@@ -47,6 +47,9 @@ jobs:
           sudo apt-get install -y shellcheck
           shellcheck -S warning deploy.sh install-tools.sh files/scripts/*.sh
 
+      - name: sab-seed script tests
+        run: sh tests/test_sab_seed.sh
+
       - name: offline cross-reference tests
         run: |
           pip install pyyaml kubernetes-validate
