@@ -1,0 +1,114 @@
+{{- if .Values.backup.enabled }}
+# ─────────────────────────────────────────────────────────────────────────────
+# Config backup CronJob
+#
+# Every app in this stack keeps its state in a SQLite database on a config PVC.
+# Those PVCs use the cluster's default StorageClass, which on a single-node
+# install is a directory on that node's disk with no redundancy. Losing the
+# disk loses every library, watch history, and download setting; the media on
+# the NAS survives, the configuration does not.
+#
+# This job copies each config volume to the media share nightly. Databases are
+# copied with sqlite3's online backup API, so nothing has to be stopped and a
+# database written to mid-copy cannot produce a silently corrupt archive.
+#
+# Restore: see README, "Restoring a config backup".
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: config-backup
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: config-backup
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  timeZone: {{ .Values.backup.timeZone | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: {{ .Values.backup.timeoutSeconds }}
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app: config-backup
+        spec:
+          restartPolicy: OnFailure
+          nodeSelector:
+            kubernetes.io/os: linux
+          automountServiceAccountToken: false
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            fsGroup: 1000
+          containers:
+            - name: backup
+              image: {{ .Values.backup.image }}
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              command: ["python3", "/scripts/backup.py"]
+              env:
+                - name: BACKUP_DIR
+                  value: {{ .Values.backup.destination | quote }}
+                - name: KEEP_BACKUPS
+                  value: {{ .Values.backup.keep | quote }}
+                - name: APPS
+                  value: {{ .Values.backup.apps | join " " | quote }}
+                - name: NOTIFY_ON_SUCCESS
+                  value: {{ .Values.backup.notifyOnSuccess | quote }}
+                # Payload format only; the webhook URL comes from the
+                # shared clamav-notify Secret, which deploy.sh always creates.
+                - name: NOTIFICATION_TYPE
+                  value: {{ .Values.clamav.notificationType | quote }}
+                - name: WEBHOOK_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: clamav-notify
+                      key: webhook-url
+                      optional: true
+              resources:
+                {{- toYaml .Values.backup.resources | nindent 16 }}
+              volumeMounts:
+                - name: media
+                  mountPath: /mnt/media
+                - name: scripts
+                  mountPath: /scripts
+                - name: tmp
+                  mountPath: /tmp
+                {{- range .Values.backup.apps }}
+                - name: {{ . }}-config
+                  mountPath: /configs/{{ . }}
+                  readOnly: true
+                {{- end }}
+          volumes:
+            - name: media
+              persistentVolumeClaim:
+                claimName: media-pvc
+            - name: tmp
+              emptyDir:
+                sizeLimit: {{ .Values.backup.scratchSize }}
+            - name: scripts
+              configMap:
+                name: backup-config
+                items:
+                  - key: backup.py
+                    path: backup.py
+                    mode: 0555
+            {{- range .Values.backup.apps }}
+            - name: {{ . }}-config
+              persistentVolumeClaim:
+                claimName: {{ . }}-config
+                readOnly: true
+            {{- end }}
+{{- end }}

@@ -76,10 +76,10 @@ def main(path):
         for c in containers(spec):
             for e in c.get("env", []):
                 vf = e.get("valueFrom", {})
-                if "secretKeyRef" in vf:
+                if "secretKeyRef" in vf and not vf["secretKeyRef"].get("optional"):
                     check(vf["secretKeyRef"]["name"] in IMPERATIVE_SECRETS,
                           f"{name}/{c['name']}: env secret '{vf['secretKeyRef']['name']}' documented")
-                if "configMapKeyRef" in vf:
+                if "configMapKeyRef" in vf and not vf["configMapKeyRef"].get("optional"):
                     check(vf["configMapKeyRef"]["name"] in cms,
                           f"{name}/{c['name']}: env configmap '{vf['configMapKeyRef']['name']}' exists")
             # 4. hardening invariants
@@ -192,6 +192,30 @@ def main(path):
                     np = prt.get("nodePort")
                     check(np is not None and 30000 <= np <= 32767,
                           f"{name}: nodePort {np} pinned and in range")
+
+    # backup job: read-only config mounts, writable share, sane security
+    for d in docs:
+        if d["kind"] != "CronJob" or d["metadata"]["name"] != "config-backup":
+            continue
+        spec = pod_spec(d)
+        c = spec["containers"][0]
+        vols = {v["name"]: v for v in spec["volumes"]}
+        mounts = {m["name"]: m for m in c["volumeMounts"]}
+        check(mounts.get("media", {}).get("readOnly") is not True,
+              "backup: media share mounted writable (destination)")
+        cfgvols = [n for n in vols if n.endswith("-config")]
+        check(bool(cfgvols), "backup: at least one config volume mounted")
+        for n in cfgvols:
+            check(vols[n]["persistentVolumeClaim"].get("readOnly") is True,
+                  f"backup: {n} claim is readOnly")
+            check(mounts[n].get("readOnly") is True, f"backup: {n} mount is readOnly")
+        check(c["securityContext"].get("readOnlyRootFilesystem") is True,
+              "backup: read-only root filesystem")
+        check(spec["securityContext"].get("runAsNonRoot") is True,
+              "backup: runs non-root")
+        apps_env = [e["value"] for e in c["env"] if e["name"] == "APPS"][0].split()
+        for app in apps_env:
+            check(f"{app}-config" in vols, f"backup: {app} listed in APPS has its PVC mounted")
 
     # plex libraries are published for deploy.sh to consume
     check("plex-libraries" in cms, "plex-libraries ConfigMap rendered")

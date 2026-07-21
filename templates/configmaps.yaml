@@ -102,3 +102,20 @@ data:
 {{- range .Values.plex.libraries }}
     {{ .name }}|{{ .type }}|{{ .path }}
 {{- end }}
+
+{{- if .Values.backup.enabled }}
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# ConfigMap: backup-config — the config backup script
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backup-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "akpn.labels" . | nindent 4 }}
+data:
+  backup.py: |
+{{ .Files.Get "files/scripts/backup.py" | indent 4 }}
+{{- end }}

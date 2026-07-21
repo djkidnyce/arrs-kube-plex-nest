@@ -109,6 +109,82 @@ helm upgrade --install akpn . -n media --create-namespace \
 
 `nas.host` is required — rendering fails without it.
 
+### Config backups
+
+Every app here stores its state in a SQLite database on a config PVC, which
+uses the cluster's default StorageClass. On a single-node install that is one
+disk with no redundancy: losing it loses every library, watch history, and
+download setting. The media on the NAS is unaffected; the configuration is not.
+
+A nightly CronJob copies each config volume to the media share. Databases are
+copied with SQLite's online backup API, so nothing is stopped and a database
+being written mid-copy cannot produce a silently corrupt archive.
+
+```yaml
+backup:
+  enabled: true
+  schedule: "0 3 * * *"
+  destination: "/mnt/media/.backups"
+  keep: 14
+  apps: [sonarr, radarr, lidarr, seerr, tautulli, sabnzbd]
+```
+
+Plex is excluded by default: its config lives in StatefulSet volumeClaim-
+Templates and can reach tens of gigabytes of metadata and thumbnails, most of
+which Plex regenerates. Add `plex-config-plex-0` style claims yourself if you
+want it.
+
+Run one immediately:
+
+```bash
+kubectl create job --from=cronjob/config-backup backup-now -n media
+kubectl logs -f job/backup-now -n media
+```
+
+#### Restoring a config backup
+
+```bash
+kubectl scale deployment sonarr --replicas=0 -n media
+kubectl wait --for=delete pod -l app=sonarr -n media --timeout=120s
+```
+
+Start a throwaway pod with both the config PVC and the media share, then
+extract the archive over the config volume:
+
+```bash
+kubectl apply -f - <<'EOF'
+apiVersion: v1
+kind: Pod
+metadata:
+  name: restore
+  namespace: media
+spec:
+  restartPolicy: Never
+  containers:
+    - name: restore
+      image: docker.io/library/python:3.13-alpine
+      command: ["sleep", "3600"]
+      volumeMounts:
+        - name: cfg
+          mountPath: /config
+        - name: media
+          mountPath: /mnt/media
+  volumes:
+    - name: cfg
+      persistentVolumeClaim:
+        claimName: sonarr-config
+    - name: media
+      persistentVolumeClaim:
+        claimName: media-pvc
+EOF
+
+kubectl exec -n media restore -- sh -c 'ls -1 /mnt/media/.backups/sonarr/'
+kubectl exec -n media restore -- sh -c \
+  'rm -rf /config/* && tar xzf /mnt/media/.backups/sonarr/sonarr-<STAMP>.tar.gz -C /config'
+kubectl delete pod restore -n media
+kubectl scale deployment sonarr --replicas=1 -n media
+```
+
 ### Keeping local settings out of git
 
 Copy `my-values.example.yaml` to `my-values.yaml`, edit it, and deploy with it.

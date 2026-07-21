@@ -5,7 +5,7 @@ description: >
   SABnzbd+VPN, Sonarr, Radarr, Lidarr, Overseerr, Tautulli, ClamAV scanning
   with alerts. SMB shares via the Kubernetes SMB CSI driver (TrueNAS compatible).
 type: application
-version: 1.1.5
+version: 1.1.6
 appVersion: "2026.7"
 keywords:
   - plex

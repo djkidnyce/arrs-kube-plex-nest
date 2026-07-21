@@ -253,6 +253,49 @@ tautulli:
       cpu: "500m"
       memory: "512Mi"
 
+# ── Config backups ────────────────────────────────────────────────────────────
+# Every app here stores its state in a SQLite database on a config PVC, which
+# uses the cluster default StorageClass. On a single-node install that is one
+# disk with no redundancy: losing it loses every library, watch history, and
+# download setting. The media on the NAS is unaffected; the configuration is
+# not. This copies each config volume to the media share on a schedule.
+#
+# Databases are copied with sqlite3's online backup API, so nothing is stopped
+# and a database being written mid-copy cannot yield a corrupt archive.
+backup:
+  enabled: true
+  # Stock python image: the script uses only the standard library (sqlite3's
+  # online backup API, tarfile, urllib), so nothing needs installing and the
+  # container runs with a read-only root filesystem.
+  image: "docker.io/library/python:3.13-alpine"
+  schedule: "0 3 * * *"           # 3:00 AM, after the nightly ClamAV scan
+  timeZone: "America/New_York"
+  destination: "/mnt/media/.backups"
+  keep: 14                        # archives retained per app
+  notifyOnSuccess: "false"        # failures always notify (uses the ClamAV webhook)
+  timeoutSeconds: 3600
+  scratchSize: "4Gi"              # staging space; raise if Plex configs are large
+
+  # Which config PVCs to back up. Each must be named "<app>-config".
+  # Plex is excluded by default: its config PVCs are StatefulSet volumeClaim-
+  # Templates (plex-config-plex-0, ...) and can reach tens of GB with metadata
+  # and thumbnails. Back it up separately if you want it.
+  apps:
+    - sonarr
+    - radarr
+    - lidarr
+    - seerr
+    - tautulli
+    - sabnzbd
+
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+
 # ── ClamAV antivirus scanning ─────────────────────────────────────────────────
 clamav:
   enabled: true

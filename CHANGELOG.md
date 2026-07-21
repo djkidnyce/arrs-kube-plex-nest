@@ -2,6 +2,45 @@
 
 All notable changes to this Helm chart are documented here.
 
+## [1.1.6] - 2026-07-21
+
+### Added
+- **Config backup CronJob.** Every app in this stack keeps its state in a
+  SQLite database on a config PVC backed by the cluster default StorageClass,
+  which on a single-node install is one disk with no redundancy. A nightly job
+  now copies each config volume to the media share (`backup.destination`,
+  default `/mnt/media/.backups`), keeping `backup.keep` archives per app.
+
+  Databases are copied with SQLite's online backup API rather than as files, so
+  nothing has to be stopped and a database written to mid-copy cannot yield an
+  archive that looks valid and fails at restore time. Volatile directories
+  (logs, caches, Plex metadata) and `-wal`/`-shm`/`-journal` sidecars are
+  excluded. The job runs non-root with a read-only root filesystem and mounts
+  every config PVC read-only; only the media share is writable.
+
+  Plex is excluded by default because its config volumes are StatefulSet
+  volumeClaimTemplates and can reach tens of gigabytes of regenerable
+  metadata.
+
+  Failures reuse the ClamAV webhook if one is configured.
+- README: backup configuration and a step-by-step restore procedure.
+
+### Testing
+- tests/test_backup.py: 16 checks, including the case that matters most, a
+  database written to continuously during the backup. Verifies the restored
+  copy passes `integrity_check`, that the running app is never locked out,
+  that WAL-mode databases restore intact, retention, and the failure modes
+  (unwritable destination, no apps, missing mount).
+- tests/validate.py gained guards asserting config PVCs are mounted read-only,
+  the media share is writable, the job runs non-root with a read-only root
+  filesystem, and every app in `backup.apps` actually has its PVC mounted.
+
+### Fixed
+- Backup image corrected before release: the first implementation used a shell
+  script on `alpine`, which ships with neither `sqlite3` nor `curl` and cannot
+  install them under a read-only root filesystem. Rewritten against the Python
+  standard library on a stock `python:3.13-alpine` image.
+
 ## [1.1.5] - 2026-07-21
 
 Captures everything discovered during the first production deployment. Three

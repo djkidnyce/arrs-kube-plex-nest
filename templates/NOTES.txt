@@ -137,6 +137,25 @@
     helm upgrade akpn . --set clamav.enabled=true -n {{ .Release.Namespace }}
 {{- end }}
 
+{{- if .Values.backup.enabled }}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CONFIG BACKUPS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Schedule:     {{ .Values.backup.schedule }} {{ .Values.backup.timeZone }}
+  Destination:  {{ .Values.backup.destination }}  (keeping {{ .Values.backup.keep }} per app)
+  Apps:         {{ .Values.backup.apps | join ", " }}
+
+  Databases are copied with SQLite's online backup API, so nothing is stopped
+  and a database written to mid-copy cannot produce a corrupt archive.
+
+  Run one now:
+    kubectl create job --from=cronjob/config-backup backup-now -n {{ .Release.Namespace }}
+    kubectl logs -f job/backup-now -n {{ .Release.Namespace }}
+
+  Restoring: see README, "Restoring a config backup".
+{{- end }}
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   SECURITY NOTES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
