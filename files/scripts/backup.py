@@ -77,24 +77,56 @@ def is_sqlite(path):
 
 
 def copy_database(src, dest):
-    """Consistent copy of a live SQLite database. Returns True on success."""
+    """Consistent copy of a live SQLite database from a (possibly read-only)
+    source.
+
+    The config PVCs are mounted read-only for safety, but SQLite cannot open a
+    WAL-mode database from a read-only directory: it needs to touch the -shm
+    shared-memory file, which fails with "unable to open database file". So the
+    database and its -wal/-shm sidecars are copied to a writable temp area
+    first (a read, always allowed), then checkpointed and verified there. Any
+    torn copy from a checkpoint racing our read is caught by integrity_check
+    and retried. Returns True on success.
+    """
     dest.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        # immutable=1 would skip locking but also miss WAL content; a normal
-        # read-only connection plus .backup() gives a consistent snapshot.
-        source = sqlite3.connect(f"file:{src}?mode=ro", uri=True, timeout=30)
-        try:
-            target = sqlite3.connect(str(dest))
+    for attempt in range(3):
+        with tempfile.TemporaryDirectory(dir="/tmp") as td:
+            work = Path(td) / src.name
             try:
-                source.backup(target)
-            finally:
-                target.close()
-        finally:
-            source.close()
-        return True
-    except sqlite3.Error as exc:
-        log(f"    sqlite backup failed for {src.name}: {exc}")
-        return False
+                # Order matters: main db first, then the append-only -wal.
+                shutil.copy2(src, work)
+                for suffix in ("-wal", "-shm"):
+                    side = src.parent / (src.name + suffix)
+                    if side.exists():
+                        try:
+                            shutil.copy2(side, Path(td) / (src.name + suffix))
+                        except OSError:
+                            pass          # sidecar vanished; wal frames are checksummed
+            except OSError as exc:
+                log(f"    copy failed for {src.name}: {exc}")
+                return False
+            try:
+                con = sqlite3.connect(str(work), timeout=30)
+                con.execute("PRAGMA wal_checkpoint(TRUNCATE)")   # fold -wal into the copy
+                status = con.execute("PRAGMA integrity_check").fetchone()[0]
+                if status != "ok":
+                    con.close()
+                    log(f"    integrity_check failed for {src.name} "
+                        f"(attempt {attempt + 1}/3): {status}")
+                    continue
+                target = sqlite3.connect(str(dest))
+                try:
+                    con.backup(target)          # clean, defragmented single-file copy
+                finally:
+                    target.close()
+                con.close()
+                return True
+            except sqlite3.Error as exc:
+                log(f"    sqlite error for {src.name} "
+                    f"(attempt {attempt + 1}/3): {exc}")
+                continue
+    log(f"    gave up on {src.name} after 3 attempts")
+    return False
 
 
 def stage_app(src_root, stage):

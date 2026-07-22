@@ -2,6 +2,29 @@
 
 All notable changes to this Helm chart are documented here.
 
+## [1.1.7] - 2026-07-22
+
+### Fixed
+- **Config backup skipped WAL-mode databases, silently.** The backup opened
+  each database in place from the read-only config mount, but SQLite cannot
+  open a WAL-mode database from a read-only filesystem: it needs to create the
+  -shm shared-memory file, which fails with "unable to open database file". In
+  production this skipped Tautulli's entire database (the archive contained its
+  config files but no data, useless for restore) and Sonarr's logs.db. Found on
+  the first real backup run.
+
+  copy_database now stages each database and its -wal/-shm sidecars into
+  writable /tmp first (a read, always permitted on a read-only mount), then
+  checkpoints and verifies there. A torn read from a checkpoint racing the copy
+  is caught by integrity_check and retried up to three times. The read-only
+  mount, and its safety guarantee, is preserved.
+
+### Testing
+- tests/test_backup.py: added a WAL-mode-database-from-a-read-only-source case,
+  the exact production failure, verifying the database ends up in the archive
+  (not skipped) and restores with integrity_check ok and all rows, including
+  writes made during the backup.
+
 ## [1.1.6] - 2026-07-21
 
 ### Added

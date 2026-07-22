@@ -92,6 +92,35 @@ def main():
         check(not list(out.glob("*-wal")) and not list(out.glob("*-shm")),
               "sqlite sidecar files excluded")
 
+        # 2b. WAL-mode database from a READ-ONLY source directory — the exact
+        #     production failure (config PVCs are mounted readOnly, and SQLite
+        #     cannot open a WAL db from a read-only dir without staging it).
+        rocfg = configs / "roapp"
+        rocfg.mkdir()
+        wc = make_db(rocfg / "main.db", 300, wal=True)
+        # keep a writer's WAL/shm live, then lock the directory read-only
+        wc.execute("INSERT INTO items(v) VALUES('x')")
+        wc.commit()
+        os.chmod(rocfg, 0o555)
+        try:
+            rr = run(script, configs, tmp / "ro", ["roapp"])
+            check(rr.returncode == 0, "read-only WAL source: backup succeeds")
+            roout = tmp / "rorestore"
+            roout.mkdir()
+            with tarfile.open(next((tmp / "ro" / "roapp").glob("*.tar.gz"))) as tf:
+                tf.extractall(roout)
+            check((roout / "main.db").exists(),
+                  "read-only WAL source: database present in archive (not skipped)")
+            rc = sqlite3.connect(roout / "main.db")
+            check(rc.execute("PRAGMA integrity_check").fetchone()[0] == "ok",
+                  "read-only WAL source: restored database intact")
+            check(rc.execute("SELECT count(*) FROM items").fetchone()[0] >= 300,
+                  "read-only WAL source: all rows captured")
+            rc.close()
+        finally:
+            os.chmod(rocfg, 0o755)
+            wc.close()
+
         # 3. hot copy: database written continuously during the backup
         stop = threading.Event()
         errs = []
