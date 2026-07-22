@@ -54,7 +54,7 @@ spec:
 ---
 # 3. One ingress policy per exposed service. Without these, a NodePort or
 #    LoadBalancer publishes the port but default-deny silently drops traffic.
-{{- $ports := dict "sabnzbd" .Values.sabnzbd.port "sonarr" .Values.sonarr.port "radarr" .Values.radarr.port "lidarr" .Values.lidarr.port "tautulli" .Values.tautulli.port }}
+{{- $ports := dict "sabnzbd" .Values.sabnzbd.port "sonarr" .Values.sonarr.port "radarr" .Values.radarr.port "lidarr" .Values.lidarr.port "tautulli" .Values.tautulli.port "prowlarr" .Values.prowlarr.port }}
 {{- $ns := .Release.Namespace }}
 {{- $labels := include "akpn.labels" . }}
 {{- range $svc, $port := $ports }}
@@ -147,8 +147,10 @@ spec:
   ingress:
     - from:
         - podSelector:
-            matchLabels:
-              app: seerr
+            matchExpressions:
+              - key: app
+                operator: In
+                values: ["seerr"{{ if .Values.prowlarr.enabled }}, "prowlarr"{{ end }}]
       ports:
         - protocol: TCP
           port: {{ .Values.sonarr.port }}

@@ -28,6 +28,7 @@ expose:
   mode: "nodePort"
   plex: true          # required for clients and remote access
   seerr: true         # request UI, usually shared with users
+  prowlarr: false
   sabnzbd: false
   sonarr: false
   radarr: false
@@ -43,6 +44,7 @@ expose:
     radarr: 30078
     lidarr: 30086
     tautulli: 30081
+    prowlarr: 30096
 
 # ── NAS / TrueNAS SMB share ───────────────────────────────────────────────────
 # REQUIRED: nas.host must be set at deploy time (render fails without it).
@@ -184,6 +186,26 @@ sabnzbd:
     # added automatically; add node IPs or hostnames you browse to.
     hostWhitelist: []
   configStorageSize: "5Gi"
+
+  # Where SABnzbd writes in-progress downloads and unpacks them.
+  #
+  # enabled=false (default): everything stays on the SMB share. Requires no
+  #   local disk on the node. This is the safe default and works everywhere.
+  #
+  # enabled=true: incomplete/unpack move to a local PVC (heavy random I/O on
+  #   local disk, a big throughput win), while completed files still land on
+  #   the share. ONLY turn this on if the node has free disk for `size`; on a
+  #   diskless node it will fill the root filesystem or fail to bind.
+  #
+  # completeDir is always on the share so the *arrs can hardlink/atomic-move
+  # imports into the library (same filesystem).
+  downloads:
+    enabled: false
+    size: "100Gi"                            # only used when enabled=true
+    completeDir: "/mnt/media/usenet/complete"
+    incompleteDir: "/mnt/media/usenet/incomplete"   # SMB path used when disabled
+    localDir: "/downloads/incomplete"               # local PVC path used when enabled
+
   resources:
     requests:
       cpu: "200m"
@@ -191,6 +213,15 @@ sabnzbd:
     limits:
       cpu: "2000m"
       memory: "2Gi"
+
+# ── Auto-wiring ───────────────────────────────────────────────────────────────
+# After deploy, deploy.sh connects the *arrs to SABnzbd (and, if prowlarr is
+# enabled, registers the *arrs in Prowlarr) over each app's REST API. It is
+# strictly additive: it GETs existing config first and skips anything already
+# present, so a restored or hand-configured app is never touched. Set to false
+# to configure everything manually.
+autowire:
+  enabled: true
 
 # ── *arr stack ────────────────────────────────────────────────────────────────
 sonarr:
@@ -229,8 +260,25 @@ lidarr:
       cpu: "1000m"
       memory: "1Gi"
 
+# Prowlarr — centralized indexer management; syncs indexers to the *arrs.
+prowlarr:
+  enabled: true
+  image: "lscr.io/linuxserver/prowlarr:2.4.0.5397-ls154"
+  port: 9696
+  configStorageSize: "2Gi"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "1000m"
+      memory: "512Mi"
+
 seerr:
-  image: "lscr.io/linuxserver/overseerr:v1.35.0-ls159"
+  # Overseerr and Jellyseerr merged into Seerr (docs.seerr.dev); both are
+  # deprecated. Native rootless image, data at /app/config, auto-migrates an
+  # existing Overseerr database on first start.
+  image: "ghcr.io/seerr-team/seerr:3.3.0"
   port: 5055
   configStorageSize: "5Gi"
   resources:
@@ -287,6 +335,7 @@ backup:
     - seerr
     - tautulli
     - sabnzbd
+    - prowlarr
 
   resources:
     requests:

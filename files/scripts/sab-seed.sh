@@ -24,6 +24,8 @@ if [ ! -f "$INI" ]; then
     echo "enable_https = ${ENABLE_HTTPS:-0}"
     echo "inet_exposure = ${INET_EXPOSURE:-4}"
     echo "host_whitelist = ${HOST_WHITELIST:-}"
+    [ -n "${DOWNLOAD_DIR:-}" ] && echo "download_dir = ${DOWNLOAD_DIR}"
+    [ -n "${COMPLETE_DIR:-}" ] && echo "complete_dir = ${COMPLETE_DIR}"
   } > "$INI" || { echo "[seed] WARNING: could not write $INI"; exit 0; }
   chmod 0644 "$INI" 2>/dev/null || true
   echo "[seed] done (fresh config)."
@@ -49,6 +51,8 @@ set_key() {
 
 set_key "enable_https"  "${ENABLE_HTTPS:-0}"
 set_key "inet_exposure" "${INET_EXPOSURE:-4}"
+[ -n "${DOWNLOAD_DIR:-}" ] && set_key "download_dir" "$DOWNLOAD_DIR"
+[ -n "${COMPLETE_DIR:-}" ] && set_key "complete_dir" "$COMPLETE_DIR"
 
 # Merge whitelist entries rather than replacing, so anything SABnzbd or the
 # user added survives.

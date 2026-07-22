@@ -73,6 +73,63 @@ Key design decisions:
   `allowPrivilegeEscalation: false`, and no service account token. LSIO
   containers keep only the caps their s6 init needs. ClamAV runs non-root.
 
+## Connecting the apps
+
+Configure apps by their cluster DNS names, never by IP or the plex.tv server
+picker: pod IPs change on restart, DNS names do not. `helm get notes` prints the
+exact values, but the essentials:
+
+- **arrs to SABnzbd:** host `sabnzbd`, port 8080, SSL off (deploy.sh does this
+  automatically unless you pass `--no-autowire`).
+- **Overseerr/Tautulli to Plex:** `plex-0.plex-headless.<ns>.svc.cluster.local`
+  port 32400, SSL off (and `plex-1...` for the second server). Use manual entry,
+  not the plex.tv dropdown.
+
+### Auto-wiring
+
+After deploy, `deploy.sh` reads the API keys from the config PVCs and registers
+SABnzbd as a download client in Sonarr, Radarr, and Lidarr. It is restore-safe:
+it GETs existing download clients first and skips any app that already has
+SABnzbd, so a restored or hand-configured app is never touched or duplicated.
+Disable with `--no-autowire` or `autowire.enabled: false`.
+
+### Prowlarr
+
+`prowlarr.enabled` (default true) adds Prowlarr for centralized indexer
+management. Add your indexers once in Prowlarr and it syncs them to the arrs.
+In Prowlarr, add each arr under Settings, using host `sonarr`/`radarr`/`lidarr`
+and the app's API key. Prowlarr is reachable by port-forward, or set
+`expose.prowlarr: true`.
+
+### Seerr (was Overseerr)
+
+Overseerr and Jellyseerr merged into [Seerr](https://docs.seerr.dev) and are
+deprecated. This chart runs the native `seerr` image, which is rootless and
+stores data at `/app/config`. An existing Overseerr database on the `seerr-config`
+PVC migrates automatically on first start, and the nightly backup covers it, so
+the migration is recoverable.
+
+### ClamAV scan scope
+
+ClamAV scans `/mnt/media`, so completed downloads under
+`/mnt/media/usenet/complete` are scanned as they arrive. The config backups
+(`/mnt/media/.backups`), scan reports (`/mnt/media/.clamav-reports`), and the
+incomplete/working download directory are excluded automatically, since
+scanning backup archives and partial in-progress files is wasted work.
+
+### SABnzbd download performance
+
+By default everything stays on the SMB share (`sabnzbd.downloads.enabled:
+false`), so no local disk is required on the node. Downloading and unpacking on
+a network share is slower because of the heavy random I/O, so if your node has
+free local disk you can set `sabnzbd.downloads.enabled: true`. That moves the
+incomplete/unpack directory to a local `sabnzbd-downloads` PVC while completed
+files still land on `/mnt/media` for same-filesystem arr imports. Only enable it
+if the node actually has room for `sabnzbd.downloads.size`; on a diskless node
+it will fill the root filesystem or fail to bind. Either way, the SABnzbd
+connection count (Config to Servers) is the other thing to check if downloads
+are slow.
+
 ## Prerequisites
 
 - Kubernetes cluster with at least one Linux worker node (k3s, kubeadm, RKE2...)

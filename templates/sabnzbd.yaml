@@ -238,6 +238,10 @@ spec:
               mountPath: /config
             - name: media
               mountPath: /mnt/media
+            {{- if .Values.sabnzbd.downloads.enabled }}
+            - name: downloads
+              mountPath: /downloads
+            {{- end }}
 
         # ── 3. VPN Rotator ────────────────────────────────────────────────
         - name: vpn-rotator
@@ -263,6 +267,11 @@ spec:
 
       # ── Volumes ──────────────────────────────────────────────────────────
       volumes:
+        {{- if .Values.sabnzbd.downloads.enabled }}
+        - name: downloads
+          persistentVolumeClaim:
+            claimName: sabnzbd-downloads
+        {{- end }}
         {{- if .Values.sabnzbd.config.seed }}
         - name: sab-seed
           configMap:

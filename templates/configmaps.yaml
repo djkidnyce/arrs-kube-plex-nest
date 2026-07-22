@@ -53,6 +53,9 @@ data:
   SCAN_DIR:  "/mnt/media"
   DB_PATH:   "/var/lib/clamav"
   MAX_FILE_SIZE: {{ .Values.clamav.maxFileSize | quote }}
+  # Directories under the media share to skip: config backups, scan reports,
+  # and the incomplete download dir (partial files). Colon-separated.
+  EXCLUDE_DIRS: {{ printf "%s:%s:%s" .Values.backup.destination .Values.clamav.reportDir .Values.sabnzbd.downloads.incompleteDir | quote }}
   REPORT_DIR: {{ .Values.clamav.reportDir | quote }}
   KEEP_REPORTS: {{ .Values.clamav.keepReports | quote }}
   scan.sh: |
@@ -79,6 +82,8 @@ data:
   SEED_ENABLED: "true"
   ENABLE_HTTPS: {{ if .Values.sabnzbd.config.enableHttps }}"1"{{ else }}"0"{{ end }}
   INET_EXPOSURE: {{ .Values.sabnzbd.config.inetExposure | quote }}
+  DOWNLOAD_DIR: {{ if .Values.sabnzbd.downloads.enabled }}{{ .Values.sabnzbd.downloads.localDir | quote }}{{ else }}{{ .Values.sabnzbd.downloads.incompleteDir | quote }}{{ end }}
+  COMPLETE_DIR: {{ .Values.sabnzbd.downloads.completeDir | quote }}
   HOST_WHITELIST: {{ concat (list "sabnzbd" (printf "sabnzbd.%s" .Release.Namespace) (printf "sabnzbd.%s.svc" .Release.Namespace) (printf "sabnzbd.%s.svc.cluster.local" .Release.Namespace)) .Values.sabnzbd.config.hostWhitelist | join "," | quote }}
   sab-seed.sh: |
 {{ .Files.Get "files/scripts/sab-seed.sh" | indent 4 }}

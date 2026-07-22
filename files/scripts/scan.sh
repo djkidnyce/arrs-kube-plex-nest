@@ -63,12 +63,31 @@ printf '%s\n' "$FRESH_LOG" | grep -v "^$" | tail -10
 if [ "$FRESH_RC" -ne 0 ]; then echo "[freshclam] WARNING: update failed (exit $FRESH_RC) — using existing defs."; fi
 
 echo ""
+# Build prune arguments from EXCLUDE_DIRS (colon-separated). These are paths
+# under the share that should never be scanned: config backups, scan reports,
+# and the incomplete/working download dir (partial files being written).
+set --
+OLDIFS=$IFS; IFS=:
+for d in ${EXCLUDE_DIRS:-}; do
+  [ -n "$d" ] || continue
+  set -- "$@" -path "$d" -o
+done
+IFS=$OLDIFS
+
 if [ "$SCAN_TYPE" = "quick" ]; then
-  echo "[scan] Files modified in last 24 hours..."
-  find "$SCAN_DIR" -mtime -1 -type f 2>/dev/null > /tmp/scan-list.txt
+  echo "[scan] Files modified in last 24 hours (excluding: ${EXCLUDE_DIRS:-none})..."
+  MTIME="-mtime -1"
 else
-  echo "[scan] All files (full scan)..."
-  find "$SCAN_DIR" -type f 2>/dev/null > /tmp/scan-list.txt
+  echo "[scan] All files (full scan, excluding: ${EXCLUDE_DIRS:-none})..."
+  MTIME=""
+fi
+
+if [ "$#" -gt 0 ]; then
+  # shellcheck disable=SC2086
+  find "$SCAN_DIR" \( "$@" -false \) -prune -o $MTIME -type f -print 2>/dev/null > /tmp/scan-list.txt
+else
+  # shellcheck disable=SC2086
+  find "$SCAN_DIR" $MTIME -type f -print 2>/dev/null > /tmp/scan-list.txt
 fi
 
 FILE_COUNT=$(wc -l < /tmp/scan-list.txt | tr -d ' ')

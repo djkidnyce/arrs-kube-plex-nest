@@ -64,7 +64,7 @@ spec:
                 - name: KEEP_BACKUPS
                   value: {{ .Values.backup.keep | quote }}
                 - name: APPS
-                  value: {{ .Values.backup.apps | join " " | quote }}
+                  value: "{{- range $a := .Values.backup.apps }}{{- if not (and (eq $a "prowlarr") (not $.Values.prowlarr.enabled)) }}{{ $a }} {{ end }}{{- end }}"
                 - name: NOTIFY_ON_SUCCESS
                   value: {{ .Values.backup.notifyOnSuccess | quote }}
                 # Payload format only; the webhook URL comes from the
@@ -86,10 +86,12 @@ spec:
                   mountPath: /scripts
                 - name: tmp
                   mountPath: /tmp
-                {{- range .Values.backup.apps }}
-                - name: {{ . }}-config
-                  mountPath: /configs/{{ . }}
+                {{- range $a := .Values.backup.apps }}
+                {{- if not (and (eq $a "prowlarr") (not $.Values.prowlarr.enabled)) }}
+                - name: {{ $a }}-config
+                  mountPath: /configs/{{ $a }}
                   readOnly: true
+                {{- end }}
                 {{- end }}
           volumes:
             - name: media
@@ -105,10 +107,12 @@ spec:
                   - key: backup.py
                     path: backup.py
                     mode: 0555
-            {{- range .Values.backup.apps }}
-            - name: {{ . }}-config
+            {{- range $a := .Values.backup.apps }}
+            {{- if not (and (eq $a "prowlarr") (not $.Values.prowlarr.enabled)) }}
+            - name: {{ $a }}-config
               persistentVolumeClaim:
-                claimName: {{ . }}-config
+                claimName: {{ $a }}-config
                 readOnly: true
+            {{- end }}
             {{- end }}
 {{- end }}

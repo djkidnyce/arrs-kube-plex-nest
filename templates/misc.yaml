@@ -2,7 +2,13 @@
 # Miscellaneous Deployments — Overseerr (seerr) and Tautulli
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── Overseerr ───────────────────────────────────────────────────────────────
+# ── Seerr (Overseerr/Jellyseerr successor) ──────────────────────────────────
+# The native seerr image is rootless (runs as node, 1000:1000) and stores its
+# data at /app/config, not /config. It ignores PUID/PGID; the pod securityContext
+# sets the user instead. The seerr-config PVC keeps its files at the volume root,
+# so remounting it at /app/config surfaces the existing Overseerr settings and
+# database, which seerr auto-migrates on first start. (seerr-config is included
+# in the nightly backup, so this migration is recoverable.)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -26,16 +32,32 @@ spec:
       nodeSelector:
         kubernetes.io/os: linux
       automountServiceAccountToken: false
-      {{- include "akpn.podSecurityContext" . | nindent 6 }}
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        fsGroup: 1000
       containers:
         - name: seerr
           image: {{ .Values.seerr.image }}
           imagePullPolicy: IfNotPresent
-          {{- include "akpn.lsioContainerSecurity" . | nindent 10 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
           ports:
             - containerPort: {{ .Values.seerr.port }}
           env:
-            {{- include "akpn.globalEnv" . | nindent 12 }}
+            - name: TZ
+              valueFrom:
+                configMapKeyRef:
+                  name: media-env
+                  key: TZ
+            - name: PORT
+              value: {{ .Values.seerr.port | quote }}
           resources:
             {{- toYaml .Values.seerr.resources | nindent 12 }}
           startupProbe:
@@ -59,11 +81,11 @@ spec:
             initialDelaySeconds: 15
             periodSeconds: 10
           volumeMounts:
-            # LSIO's overseerr image uses /config. The upstream sctx image uses
-            # /app/config; mounting there leaves Overseerr writing its database
-            # to ephemeral container storage, which is lost on every restart.
+            # Native seerr stores data at /app/config. The PVC's files live at
+            # its root, so the existing Overseerr config surfaces here and seerr
+            # migrates it on first boot.
             - name: config
-              mountPath: /config
+              mountPath: /app/config
       volumes:
         - name: config
           persistentVolumeClaim:

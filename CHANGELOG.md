@@ -2,6 +2,59 @@
 
 All notable changes to this Helm chart are documented here.
 
+## [1.1.8] - 2026-07-22
+
+Connectivity and performance release. Note: the deploy.sh auto-wiring and
+Prowlarr indexer steps are live REST calls and are validated on a running
+cluster, not by the offline test harness.
+
+### Changed
+- **Overseerr migrated to Seerr.** Overseerr and Jellyseerr merged into Seerr
+  (docs.seerr.dev) and are deprecated. Now runs the native rootless
+  `ghcr.io/seerr-team/seerr:3.3.0` image (user 1000:1000, no PUID/PGID), with
+  the config volume at `/app/config`. The existing Overseerr database on the
+  `seerr-config` PVC surfaces at the new path and Seerr auto-migrates it on
+  first start; the nightly backup covers `seerr-config`, so it is recoverable.
+
+### Added
+- **Optional local SABnzbd downloads PVC** (`sabnzbd.downloads`, default
+  **off**). By default everything stays on the SMB share, so no local disk is
+  needed on the node. When enabled on a node with free disk, the
+  incomplete/unpack directory moves to a local PVC (a big throughput win from
+  keeping random I/O off the network) while completed files still land on
+  `/mnt/media` for same-filesystem arr imports. Either way the seed script
+  standardizes `download_dir`/`complete_dir` to `/mnt/media/usenet/*` by
+  default, fixing installs whose dirs were elsewhere on the share.
+- **Restore-safe auto-wiring.** deploy.sh registers SABnzbd as a download
+  client in Sonarr, Radarr, and Lidarr over their REST APIs after deploy. It
+  GETs existing download clients first and skips any app already configured,
+  so restored or hand-set apps are never touched or duplicated. Disable with
+  `--no-autowire` or `autowire.enabled: false`.
+- **Prowlarr** (`prowlarr.enabled`, default true) for centralized indexer
+  management, with its own deployment, service, config PVC, backup coverage,
+  and a NetworkPolicy allowing it to reach the arrs for indexer sync.
+- **Internal connection reference in NOTES**: the exact host/port/SSL values
+  for wiring the arrs to SABnzbd and Overseerr/Tautulli to Plex, using stable
+  cluster DNS names rather than the pod IPs the plex.tv picker stores.
+- README sections for connecting apps, auto-wiring, Prowlarr, the Seerr
+  migration, and SABnzbd download performance.
+
+### Fixed
+- **ClamAV now excludes the config backups, scan reports, and the incomplete
+  download directory** from scans. With backups, reports, and (by default) the
+  incomplete download dir all living under `/mnt/media`, the unfiltered scan
+  was wasting time recursing into backup archives and scanning partial,
+  in-progress download files. Completed downloads under `/mnt/media/usenet/
+  complete` are still scanned. Exclusions are derived from the other values so
+  they cannot drift.
+
+### Testing
+- tests/validate.py: 284 checks, up from 256. New guards cover the Seerr image
+  and rootless securityContext, the /app/config path, the local downloads
+  volume and its seeded dirs, and Prowlarr's deployment/service/PVC/policy.
+  A disabled service is correctly dropped from the backup app list.
+- tests/render.py gained merge, splitList, and map-range support.
+
 ## [1.1.7] - 2026-07-22
 
 ### Fixed

@@ -133,3 +133,27 @@ spec:
 {{- if and .Values.expose.tautulli (eq .Values.expose.mode "nodePort") }}
       nodePort: {{ .Values.expose.nodePorts.tautulli }}
 {{- end }}
+
+{{- if .Values.prowlarr.enabled }}
+---
+# Prowlarr
+apiVersion: v1
+kind: Service
+metadata:
+  name: prowlarr
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: prowlarr
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  type: {{ include "akpn.serviceType" (dict "svc" "prowlarr" "root" $) }}
+  selector:
+    app: prowlarr
+  ports:
+    - name: http
+      port: {{ .Values.prowlarr.port }}
+      targetPort: {{ .Values.prowlarr.port }}
+{{- if and .Values.expose.prowlarr (eq .Values.expose.mode "nodePort") }}
+      nodePort: {{ .Values.expose.nodePorts.prowlarr }}
+{{- end }}
+{{- end }}

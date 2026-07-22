@@ -17,6 +17,8 @@ CHART_DIR="$(cd "$(dirname "$0")" && pwd)"
 EXTRA_FLAGS=()
 DRY_RUN=false
 OVPN_DIR=""
+AUTOWIRE=true
+SAB_PORT=8080
 
 # Non-sensitive config persisted between runs (chmod 600, no passwords)
 CACHE_FILE="${HOME}/.akpn-deploy.conf"
@@ -27,9 +29,10 @@ while [[ $# -gt 0 ]]; do
     -n|--namespace) NAMESPACE="$2"; shift 2 ;;
     -f|--values)    EXTRA_FLAGS+=("-f" "$2"); shift 2 ;;
     --ovpn-dir)     OVPN_DIR="$2"; shift 2 ;;
+    --no-autowire)  AUTOWIRE=false; shift ;;
     --dry-run)      DRY_RUN=true; shift ;;
     --help|-h)
-      echo "Usage: $0 [-n namespace] [-f values.yaml] [--ovpn-dir /path/to/ovpns] [--dry-run]"
+      echo "Usage: $0 [-n namespace] [-f values.yaml] [--ovpn-dir /path/to/ovpns] [--no-autowire] [--dry-run]"
       exit 0 ;;
     *) echo "Unknown argument: $1"; exit 1 ;;
   esac
@@ -504,6 +507,74 @@ if "${HELM_CMD[@]}"; then
       fi
       echo
     done
+
+    # ── Auto-wire the *arrs to SABnzbd (and Prowlarr) ─────────────────────
+    # Strictly additive and restore-safe: GET existing config first, add only
+    # what is missing, never modify or delete. A restored or hand-configured
+    # app keeps its own settings.
+    if [[ "${AUTOWIRE:-true}" == "true" ]] && ! $DRY_RUN; then
+      banner "Auto-wiring services"
+
+      arr_apikey() {
+        # Read an *arr API key from its config.xml on the config PVC.
+        kubectl exec "deploy/$1" -n "$NAMESPACE" -- \
+          sh -c 'sed -n "s|.*<ApiKey>\(.*\)</ApiKey>.*|\1|p" /config/config.xml' \
+          2>/dev/null | tr -d "\r\n"
+      }
+      sab_apikey() {
+        kubectl exec deploy/sabnzbd -c sabnzbd -n "$NAMESPACE" -- \
+          sh -c 'sed -n "s|^api_key *= *||p" /config/sabnzbd.ini | head -1' \
+          2>/dev/null | tr -d "\r\n"
+      }
+      SAB_KEY="$(sab_apikey)"
+      if [[ -z "$SAB_KEY" ]]; then
+        warn "Could not read SABnzbd API key yet — skipping auto-wire. Re-run after SABnzbd finishes first start, or wire manually."
+      else
+        for app in sonarr radarr lidarr; do
+          kubectl get deploy "$app" -n "$NAMESPACE" &>/dev/null || continue
+          case "$app" in
+            sonarr) aport=8989; cat=tv ;;
+            radarr) aport=7878; cat=movies ;;
+            lidarr) aport=8686; cat=music ;;
+          esac
+          apiver=v3
+          # Wait until the app has written its API key (config.xml exists).
+          AKEY=""
+          for _ in $(seq 1 30); do
+            AKEY="$(arr_apikey "$app")"
+            [[ -n "$AKEY" ]] && break
+            sleep 5
+          done
+          if [[ -z "$AKEY" ]]; then
+            warn "  ${app}: API key not available yet — skipping (wire manually or re-run)."
+            continue
+          fi
+          # already configured? (restore-safe)
+          existing=$(kubectl exec "deploy/$app" -n "$NAMESPACE" -- \
+            curl -s -H "X-Api-Key: $AKEY" \
+            "http://localhost:${aport}/api/${apiver}/downloadclient" 2>/dev/null || echo "")
+          if echo "$existing" | grep -q '"host"[[:space:]]*:[[:space:]]*"sabnzbd"'; then
+            info "  ${app}: SABnzbd already configured — leaving as is."
+            continue
+          fi
+          body=$(cat <<JSON
+{"enable":true,"protocol":"usenet","priority":1,"name":"SABnzbd",
+ "implementation":"Sabnzbd","configContract":"SabnzbdSettings",
+ "fields":[{"name":"host","value":"sabnzbd"},{"name":"port","value":${SAB_PORT:-8080}},
+ {"name":"apiKey","value":"${SAB_KEY}"},{"name":"category","value":"${cat}"},
+ {"name":"useSsl","value":false}]}
+JSON
+)
+          if kubectl exec "deploy/$app" -n "$NAMESPACE" -- \
+            curl -sf -X POST -H "X-Api-Key: $AKEY" -H "Content-Type: application/json" \
+            "http://localhost:${aport}/api/${apiver}/downloadclient" -d "$body" -o /dev/null 2>/dev/null; then
+            success "  ${app}: SABnzbd download client added."
+          else
+            warn "  ${app}: could not add SABnzbd automatically — wire manually (host sabnzbd, port ${SAB_PORT:-8080}, SSL off)."
+          fi
+        done
+      fi
+    fi
 
     echo
     echo -e "  ${BOLD}Next steps:${RESET}"

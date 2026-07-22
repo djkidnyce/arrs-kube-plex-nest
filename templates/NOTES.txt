@@ -101,6 +101,35 @@
      API Key:  (from SABnzbd Settings → General)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  INTERNAL CONNECTIONS  (use these names in each app — NOT the plex.tv dropdown)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Cluster DNS names are stable for the life of the release. Pod IPs are not,
+  so always configure apps by these names, not by an IP or the plex.tv picker
+  (which stores the pod IP and breaks on the next restart).
+
+  In the *arrs, add SABnzbd as the download client:
+    Host: sabnzbd    Port: {{ .Values.sabnzbd.port }}    SSL: off
+    (API key: SABnzbd → Config → General)
+
+  Point Overseerr and Tautulli at Plex (SSL off, port 32400):
+{{- range $i := until (.Values.plex.replicas | int) }}
+    plex-{{ $i }}.plex-headless.{{ $.Release.Namespace }}.svc.cluster.local
+{{- end }}
+
+  Other internal service names (namespace {{ .Release.Namespace }}):
+    sonarr:{{ .Values.sonarr.port }}  radarr:{{ .Values.radarr.port }}  lidarr:{{ .Values.lidarr.port }}  tautulli:{{ .Values.tautulli.port }}  seerr:{{ .Values.seerr.port }}
+{{- if .Values.prowlarr.enabled }}  prowlarr:{{ .Values.prowlarr.port }}{{ end }}
+
+  NOTE: the per-pod plex-N Service publishes on basePort+N (32400, 32401, ...);
+  the plex-headless names above always use 32400, which is simpler.
+{{- if .Values.autowire.enabled }}
+
+  deploy.sh already wired SABnzbd into the *arrs automatically (it skips any
+  that were configured or restored, so it never duplicates or overwrites).
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   VPN ROTATION
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

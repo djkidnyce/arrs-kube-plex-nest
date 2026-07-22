@@ -214,6 +214,25 @@
               }
             }
           }
+        },
+        "downloads": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "size": {
+              "type": "string"
+            },
+            "completeDir": {
+              "type": "string",
+              "pattern": "^/"
+            },
+            "incompleteDir": {
+              "type": "string",
+              "pattern": "^/"
+            }
+          }
         }
       }
     },
@@ -254,6 +273,31 @@
         "scratchSize": {
           "type": "string",
           "pattern": "^[0-9]+(Ei|Pi|Ti|Gi|Mi|Ki)?$"
+        }
+      }
+    },
+    "prowlarr": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "image": {
+          "type": "string",
+          "not": {
+            "pattern": ":latest$"
+          }
+        },
+        "port": {
+          "type": "integer"
+        }
+      }
+    },
+    "autowire": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
         }
       }
     }

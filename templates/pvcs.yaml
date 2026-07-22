@@ -32,6 +32,43 @@ spec:
       storage: {{ .size }}
 {{- end }}
 
+{{- if .Values.prowlarr.enabled }}
+---
+# Prowlarr config (SQLite; local block storage like the other *arrs)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prowlarr-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.prowlarr.configStorageSize }}
+{{- end }}
+
+{{- if .Values.sabnzbd.downloads.enabled }}
+---
+# SABnzbd local download scratch (incomplete + unpack). Off the SMB share on
+# purpose: keeps heavy random I/O on local disk.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sabnzbd-downloads
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.sabnzbd.downloads.size }}
+{{- end }}
+
 {{- if .Values.clamav.enabled }}
 ---
 # ClamAV virus definition database

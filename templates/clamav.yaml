@@ -81,6 +81,11 @@ spec:
                     configMapKeyRef:
                       name: clamav-config
                       key: MAX_FILE_SIZE
+                - name: EXCLUDE_DIRS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: clamav-config
+                      key: EXCLUDE_DIRS
                 - name: NOTIFICATION_TYPE
                   valueFrom:
                     configMapKeyRef:
@@ -204,6 +209,11 @@ spec:
                     configMapKeyRef:
                       name: clamav-config
                       key: MAX_FILE_SIZE
+                - name: EXCLUDE_DIRS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: clamav-config
+                      key: EXCLUDE_DIRS
                 - name: NOTIFICATION_TYPE
                   valueFrom:
                     configMapKeyRef:

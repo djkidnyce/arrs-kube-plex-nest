@@ -201,6 +201,13 @@ class Renderer:
         if fn == "include":
             name, arg = vals[0], vals[1] if len(vals) > 1 else dot
             return self.render_nodes(self.defines[name], ctx={}, dot=arg).strip("\n")
+        if fn == "merge":
+            out = {}
+            for d in reversed(vals):
+                if isinstance(d, dict):
+                    for k, vv in d.items():
+                        out.setdefault(k, vv)
+            return out
         if fn == "and":
             out = True
             for v in vals:
@@ -222,6 +229,9 @@ class Renderer:
             for v in vals:
                 out.extend(v if isinstance(v, list) else [v])
             return out
+        if fn == "splitList":
+            sep, s = vals[0], vals[1]
+            return s.split(sep) if s else []
         if fn == "join":
             sep, lst = vals[0], vals[1]
             return sep.join(str(x) for x in lst)

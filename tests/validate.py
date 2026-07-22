@@ -149,12 +149,8 @@ def main(path):
     svcs = {d["metadata"]["name"]: d for d in docs if d["kind"] == "Service"}
     cms = {d["metadata"]["name"] for d in docs if d["kind"] == "ConfigMap"}
 
-    # Overseerr must mount /config (LSIO path); /app/config silently discards data
-    for d in workloads:
-        if d["metadata"]["name"] == "seerr":
-            mounts = [m["mountPath"] for m in pod_spec(d)["containers"][0].get("volumeMounts", [])]
-            check("/config" in mounts, "seerr: config mounted at /config (LSIO path)")
-            check("/app/config" not in mounts, "seerr: NOT mounted at /app/config")
+    # Seerr (native image) mounts at /app/config; the deprecated LSIO overseerr
+    # used /config. Detailed seerr checks are below.
 
     # SABnzbd settings are seeded by an init container, never edited live
     for d in workloads:
@@ -216,6 +212,64 @@ def main(path):
         apps_env = [e["value"] for e in c["env"] if e["name"] == "APPS"][0].split()
         for app in apps_env:
             check(f"{app}-config" in vols, f"backup: {app} listed in APPS has its PVC mounted")
+
+    # Seerr: native image, /app/config path, rootless securityContext
+    for d in workloads:
+        if d["metadata"]["name"] != "seerr":
+            continue
+        spec = pod_spec(d)
+        c = spec["containers"][0]
+        check("seerr-team/seerr" in c["image"], "seerr: native seerr image (not deprecated overseerr)")
+        mounts = [m["mountPath"] for m in c["volumeMounts"]]
+        check("/app/config" in mounts, "seerr: config at /app/config")
+        check(spec["securityContext"].get("runAsNonRoot") is True, "seerr: rootless")
+        check(spec["securityContext"].get("runAsUser") == 1000, "seerr: runs as 1000 (node user)")
+
+    # SABnzbd downloads scratch off the media share
+    dl = [d for d in docs if d["kind"] == "PersistentVolumeClaim" and d["metadata"]["name"] == "sabnzbd-downloads"]
+    if dl:
+        for d in workloads:
+            if d["metadata"]["name"] != "sabnzbd":
+                continue
+            sab = [c for c in pod_spec(d)["containers"] if c["name"] == "sabnzbd"][0]
+            mp = [m["mountPath"] for m in sab["volumeMounts"]]
+            check("/downloads" in mp, "sabnzbd: local downloads volume mounted")
+        cm = [d for d in docs if d["kind"] == "ConfigMap" and d["metadata"]["name"] == "sabnzbd-seed"]
+        if cm:
+            dd = cm[0]["data"].get("DOWNLOAD_DIR", "")
+            cd = cm[0]["data"].get("COMPLETE_DIR", "")
+            check(dd.startswith("/downloads"), "sabnzbd seed: incomplete dir on local PVC (downloads enabled)")
+            check(cd.startswith("/mnt/media"), "sabnzbd seed: complete dir on the share (same-fs imports)")
+
+    # Prowlarr, when enabled, has deployment + service + pvc and can reach the arrs
+    pw_dep = [d for d in workloads if d["metadata"]["name"] == "prowlarr"]
+    if pw_dep:
+        check(any(d["kind"] == "PersistentVolumeClaim" and d["metadata"]["name"] == "prowlarr-config" for d in docs),
+              "prowlarr: config PVC present")
+        check(any(d["kind"] == "Service" and d["metadata"]["name"] == "prowlarr" for d in docs),
+              "prowlarr: service present")
+        af = [d for d in docs if d["kind"] == "NetworkPolicy" and d["metadata"]["name"] == "arrs-from-seerr"]
+        if af:
+            vals = af[0]["spec"]["ingress"][0]["from"][0]["podSelector"]["matchExpressions"][0]["values"]
+            check("prowlarr" in vals, "prowlarr: allowed to reach the *arrs for indexer sync")
+
+    # ClamAV scans must exclude backups, reports, and the incomplete download dir
+    clcm = [d for d in docs if d["kind"] == "ConfigMap" and d["metadata"]["name"] == "clamav-config"]
+    if clcm:
+        excl = clcm[0]["data"].get("EXCLUDE_DIRS", "")
+        parts = excl.split(":")
+        nonempty = [p for p in parts if p]
+        check(any(".backups" in p for p in nonempty), "clamav: backup dir excluded from scans")
+        check(any("incomplete" in p for p in nonempty), "clamav: incomplete download dir excluded from scans")
+        # report dir is optional; if configured it must be excluded
+        rd = [d for d in docs if d["kind"] == "ConfigMap" and d["metadata"]["name"] == "clamav-config"][0]["data"].get("REPORT_DIR", "")
+        if rd:
+            check(any("clamav-reports" in p or rd in p for p in nonempty),
+                  "clamav: report dir excluded from scans")
+        for d in docs:
+            if d["kind"] == "CronJob" and d["metadata"]["name"] in ("clamav-daily", "clamav-monthly"):
+                env = [e["name"] for e in pod_spec(d)["containers"][0]["env"]]
+                check("EXCLUDE_DIRS" in env, f"{d['metadata']['name']}: EXCLUDE_DIRS wired")
 
     # plex libraries are published for deploy.sh to consume
     check("plex-libraries" in cms, "plex-libraries ConfigMap rendered")

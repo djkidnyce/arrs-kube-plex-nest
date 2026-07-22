@@ -130,3 +130,51 @@ spec:
             {{- include "akpn.mediaVolumeMounts" . | nindent 12 }}
       volumes:
         {{- include "akpn.mediaVolumes" (dict "configClaim" "lidarr-config") | nindent 8 }}
+
+{{- if .Values.prowlarr.enabled }}
+---
+# ── Prowlarr ─────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prowlarr
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: prowlarr
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: prowlarr
+  template:
+    metadata:
+      labels:
+        app: prowlarr
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      automountServiceAccountToken: false
+      {{- include "akpn.podSecurityContext" . | nindent 6 }}
+      containers:
+        - name: prowlarr
+          image: {{ .Values.prowlarr.image }}
+          imagePullPolicy: IfNotPresent
+          {{- include "akpn.lsioContainerSecurity" . | nindent 10 }}
+          ports:
+            - containerPort: {{ .Values.prowlarr.port }}
+          env:
+            {{- include "akpn.globalEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.prowlarr.resources | nindent 12 }}
+          {{- include "akpn.httpProbes" (dict "port" .Values.prowlarr.port "path" "/ping") | nindent 10 }}
+          volumeMounts:
+            - name: config
+              mountPath: /config
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: prowlarr-config
+{{- end }}
