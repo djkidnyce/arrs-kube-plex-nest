@@ -532,12 +532,12 @@ if "${HELM_CMD[@]}"; then
       else
         for app in sonarr radarr lidarr; do
           kubectl get deploy "$app" -n "$NAMESPACE" &>/dev/null || continue
+          # Servarr API versions differ: Sonarr/Radarr are v3, Lidarr is v1.
           case "$app" in
-            sonarr) aport=8989; cat=tv ;;
-            radarr) aport=7878; cat=movies ;;
-            lidarr) aport=8686; cat=music ;;
+            sonarr) aport=8989; cat=tv;     apiver=v3 ;;
+            radarr) aport=7878; cat=movies; apiver=v3 ;;
+            lidarr) aport=8686; cat=music;  apiver=v1 ;;
           esac
-          apiver=v3
           # Wait until the app has written its API key (config.xml exists).
           AKEY=""
           for _ in $(seq 1 30); do

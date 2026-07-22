@@ -278,7 +278,7 @@ seerr:
   # Overseerr and Jellyseerr merged into Seerr (docs.seerr.dev); both are
   # deprecated. Native rootless image, data at /app/config, auto-migrates an
   # existing Overseerr database on first start.
-  image: "ghcr.io/seerr-team/seerr:3.3.0"
+  image: "ghcr.io/seerr-team/seerr:v3.3.0"
   port: 5055
   configStorageSize: "5Gi"
   resources:

@@ -2,6 +2,19 @@
 
 All notable changes to this Helm chart are documented here.
 
+## [1.1.9] - 2026-07-22
+
+Bugfixes for two issues found deploying v1.1.8.
+
+### Fixed
+- **Seerr image tag.** v1.1.8 pinned `ghcr.io/seerr-team/seerr:3.3.0`, but
+  Seerr's published tags carry a `v` prefix, so that tag does not exist and the
+  pod went ImagePullBackOff. Corrected to `v3.3.0`. (The migration itself works:
+  once pulled, Seerr logs "Overseerr to Seerr migration completed successfully".)
+- **Auto-wire Lidarr API version.** The auto-wire used `/api/v3` for all three
+  *arrs, but Lidarr's API is `/api/v1` (Sonarr and Radarr are v3), so Lidarr's
+  download-client POST 404'd. Each app now uses its correct API version.
+
 ## [1.1.8] - 2026-07-22
 
 Connectivity and performance release. Note: the deploy.sh auto-wiring and
