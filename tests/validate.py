@@ -271,6 +271,32 @@ def main(path):
                 env = [e["name"] for e in pod_spec(d)["containers"][0]["env"]]
                 check("EXCLUDE_DIRS" in env, f"{d['metadata']['name']}: EXCLUDE_DIRS wired")
 
+    # AudiobookShelf, when enabled: deployment + both PVCs + media mount
+    abs_dep = [d for d in workloads if d["metadata"]["name"] == "audiobookshelf"]
+    if abs_dep:
+        c = abs_dep[0]["spec"]["template"]["spec"]["containers"][0]
+        mp = [m["mountPath"] for m in c["volumeMounts"]]
+        for want in ("/config", "/metadata", "/mnt/media"):
+            check(want in mp, f"audiobookshelf: mounts {want}")
+        for pvc in ("audiobookshelf-config", "audiobookshelf-metadata"):
+            check(any(d["kind"] == "PersistentVolumeClaim" and d["metadata"]["name"] == pvc for d in docs),
+                  f"audiobookshelf: {pvc} PVC present")
+        check(":latest" not in c["image"], "audiobookshelf: image pinned")
+
+    # Dispatcharr, when enabled: deployment + /data PVC + service + plex policy.
+    # Postgres-backed, so intentionally NOT in the sqlite backup app list.
+    dsp = [d for d in workloads if d["metadata"]["name"] == "dispatcharr"]
+    if dsp:
+        c = dsp[0]["spec"]["template"]["spec"]["containers"][0]
+        check("/data" in [m["mountPath"] for m in c["volumeMounts"]], "dispatcharr: /data mounted")
+        check(any(d["kind"] == "PersistentVolumeClaim" and d["metadata"]["name"] == "dispatcharr-data" for d in docs),
+              "dispatcharr: data PVC present")
+        check(":latest" not in c["image"], "dispatcharr: image pinned")
+        cj = [d for d in docs if d["kind"] == "CronJob" and d["metadata"]["name"] == "config-backup"]
+        if cj:
+            apps = [e["value"] for e in cj[0]["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]["env"] if e["name"] == "APPS"][0]
+            check("dispatcharr" not in apps.split(), "dispatcharr: excluded from sqlite backup (it is postgres)")
+
     # plex libraries are published for deploy.sh to consume
     check("plex-libraries" in cms, "plex-libraries ConfigMap rendered")
 

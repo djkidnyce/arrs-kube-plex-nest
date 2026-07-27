@@ -7,6 +7,14 @@ my-values.yaml
 *-override.yaml
 *.cowork-write-test
 
+# ── Local / machine-specific (never committed) ────────────────────────────────
+*.local
+*.local.md
+*.local.yaml
+*.local.yml
+.env
+.env.*
+
 # ── Helm generated ────────────────────────────────────────────────────────────
 charts/
 

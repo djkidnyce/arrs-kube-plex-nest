@@ -93,6 +93,26 @@ it GETs existing download clients first and skips any app that already has
 SABnzbd, so a restored or hand-configured app is never touched or duplicated.
 Disable with `--no-autowire` or `autowire.enabled: false`.
 
+### Dispatcharr (IPTV)
+
+Set `dispatcharr.enabled: true` for [Dispatcharr](https://dispatcharr.github.io/Dispatcharr-Docs/),
+an IPTV stream manager. It runs as an all-in-one container (PostgreSQL, Redis,
+Celery, and web in one pod) persisting to a `/data` PVC. Plex can use it as a
+live TV/DVR source; a NetworkPolicy already allows Plex to reach it. Expose it
+to your browser with `expose.dispatcharr: true`.
+
+Important: Dispatcharr's data is PostgreSQL, not SQLite, so the nightly
+config-backup job does not cover it. If you rely on your Dispatcharr setup,
+back up its `/data` separately (for example a scheduled `pg_dump`).
+
+### AudiobookShelf
+
+Set `audiobookshelf.enabled: true` to add [AudiobookShelf](https://audiobookshelf.org)
+for audiobooks and podcasts. It mounts the media share at `/mnt/media`, so in the
+web UI point its libraries at `/mnt/media/audiobooks` and `/mnt/media/podcasts`
+(adjust to your folders). Config and metadata go on their own PVCs and are
+covered by the nightly backup. Expose with `expose.audiobookshelf: true`.
+
 ### Prowlarr
 
 `prowlarr.enabled` (default true) adds Prowlarr for centralized indexer
@@ -243,6 +263,13 @@ kubectl scale deployment sonarr --replicas=1 -n media
 ```
 
 ### Keeping local settings out of git
+
+For free-form environment notes (node IPs, routes, reachable targets on other
+subnets), copy `network-notes.example.md` to `network-notes.local.md` and edit
+it. The `*.local.md` pattern is gitignored, so your real addresses never reach
+GitHub. Chart values that reference the network go in `my-values.yaml` (also
+gitignored).
+
 
 Copy `my-values.example.yaml` to `my-values.yaml`, edit it, and deploy with it.
 `my-values.yaml` is gitignored, so node IPs, hostnames, and share names stay on

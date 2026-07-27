@@ -2,6 +2,56 @@
 
 All notable changes to this Helm chart are documented here.
 
+## [1.2.0] - 2026-07-27
+
+### Added
+- **AudiobookShelf** (`audiobookshelf.enabled`, default off): official
+  `ghcr.io/advplyr/audiobookshelf` image for audiobooks and podcasts. Config +
+  metadata PVCs, media share at `/mnt/media`, expose toggle, probes, nightly
+  backup coverage.
+- **Dispatcharr** (`dispatcharr.enabled`, default off): all-in-one IPTV stream
+  manager (`ghcr.io/dispatcharr/dispatcharr`), PostgreSQL/Redis/Celery/web in
+  one pod persisting to a `/data` PVC, expose toggle, and a NetworkPolicy
+  letting Plex use it as a live TV/DVR source. Its data is PostgreSQL, so it is
+  intentionally excluded from the SQLite config-backup; back up `/data`
+  separately if needed.
+
+### Fixed
+- Folds in the never-pushed v1.1.10 auto-wire idempotency fix (skip-check now
+  matches `"implementation":"Sabnzbd"` instead of a top-level host key Servarr
+  does not emit), so re-runs no longer print false "could not add" warnings.
+
+### Testing
+- Guards for AudiobookShelf (mounts, both PVCs, pinned image) and Dispatcharr
+  (/data mount, PVC, pinned image, and confirmed exclusion from the SQLite
+  backup). Full sweep across configurations, backup and seed suites pass.
+- New live-validation items (confirm on cluster): the advplyr image running
+  non-root with fsGroup, and the Dispatcharr all-in-one first-boot.
+
+## [1.2.0] - 2026-07-27
+
+### Added
+- **AudiobookShelf** (`audiobookshelf.enabled`, default off): the official
+  `ghcr.io/advplyr/audiobookshelf` image for audiobooks and podcasts. Config
+  and metadata on their own PVCs, media share mounted at `/mnt/media`, expose
+  toggle, health probes, and nightly backup coverage.
+- **Multiple Tautulli instances** (`tautulli.extraInstances`): since Tautulli
+  cannot merge multiple Plex servers into one view, a two-server setup can now
+  add one Tautulli per extra server, each a full instance with its own config
+  PVC, service, and backup coverage. The base `tautulli` is unchanged, so
+  existing installs are unaffected.
+
+### Fixed
+- Folds in the v1.1.10 auto-wire idempotency fix (skip-check now detects an
+  existing SABnzbd client by `"implementation":"Sabnzbd"` rather than a
+  top-level host key that Servarr never emits), which was never pushed
+  separately.
+
+### Testing
+- Guards for AudiobookShelf (mounts, both PVCs, pinned image) and extra
+  Tautulli instances (PVC + service each). Backup app list correctly appends
+  enabled apps and every extra Tautulli, verified across configurations.
+
 ## [1.1.9] - 2026-07-22
 
 Bugfixes for two issues found deploying v1.1.8.

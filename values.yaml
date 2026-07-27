@@ -34,6 +34,8 @@ expose:
   radarr: false
   lidarr: false
   tautulli: false
+  audiobookshelf: false
+  dispatcharr: false
 
   # Pinned nodePorts (valid range 30000-32767). Plex uses basePort+N directly
   # so its published port matches what Plex advertises.
@@ -45,6 +47,8 @@ expose:
     lidarr: 30086
     tautulli: 30081
     prowlarr: 30096
+    audiobookshelf: 30378
+    dispatcharr: 30191
 
 # ── NAS / TrueNAS SMB share ───────────────────────────────────────────────────
 # REQUIRED: nas.host must be set at deploy time (render fails without it).
@@ -336,10 +340,48 @@ backup:
     - tautulli
     - sabnzbd
     - prowlarr
+    - audiobookshelf
 
   resources:
     requests:
       cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+
+# ── Dispatcharr (IPTV stream manager) ─────────────────────────────────────────
+# All-in-one image: PostgreSQL, Redis, Celery, and the web app run inside the
+# one container, persisting everything to /data. NOTE: its data is PostgreSQL,
+# not SQLite, so the nightly config-backup job does NOT cover it — back up /data
+# separately (pg_dump) if you rely on it.
+dispatcharr:
+  enabled: false
+  image: "ghcr.io/dispatcharr/dispatcharr:0.28.2"
+  port: 9191
+  dataStorageSize: "10Gi"
+  logLevel: "info"
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "2000m"
+      memory: "2Gi"
+
+# ── AudiobookShelf ────────────────────────────────────────────────────────────
+audiobookshelf:
+  enabled: false
+  image: "ghcr.io/advplyr/audiobookshelf:2.35.1"
+  port: 13378
+  configStorageSize: "5Gi"          # SQLite database
+  metadataStorageSize: "10Gi"       # covers, author images, backups
+  # Audiobook/podcast libraries under the media share.
+  audiobooksPath: "/mnt/media/audiobooks"
+  podcastsPath: "/mnt/media/podcasts"
+  resources:
+    requests:
+      cpu: "50m"
       memory: "128Mi"
     limits:
       cpu: "1000m"

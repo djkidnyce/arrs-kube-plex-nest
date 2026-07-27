@@ -64,7 +64,7 @@ spec:
                 - name: KEEP_BACKUPS
                   value: {{ .Values.backup.keep | quote }}
                 - name: APPS
-                  value: "{{- range $a := .Values.backup.apps }}{{- if not (and (eq $a "prowlarr") (not $.Values.prowlarr.enabled)) }}{{ $a }} {{ end }}{{- end }}"
+                  value: "{{- range $a := .Values.backup.apps }}{{- if not (and (eq $a "prowlarr") (not $.Values.prowlarr.enabled)) }}{{- if not (and (eq $a "audiobookshelf") (not $.Values.audiobookshelf.enabled)) }} {{ $a }}{{ end }}{{- end }}{{- end }}"
                 - name: NOTIFY_ON_SUCCESS
                   value: {{ .Values.backup.notifyOnSuccess | quote }}
                 # Payload format only; the webhook URL comes from the
@@ -88,11 +88,14 @@ spec:
                   mountPath: /tmp
                 {{- range $a := .Values.backup.apps }}
                 {{- if not (and (eq $a "prowlarr") (not $.Values.prowlarr.enabled)) }}
+                {{- if not (and (eq $a "audiobookshelf") (not $.Values.audiobookshelf.enabled)) }}
                 - name: {{ $a }}-config
                   mountPath: /configs/{{ $a }}
                   readOnly: true
                 {{- end }}
                 {{- end }}
+                {{- end }}
+
           volumes:
             - name: media
               persistentVolumeClaim:
@@ -109,10 +112,13 @@ spec:
                     mode: 0555
             {{- range $a := .Values.backup.apps }}
             {{- if not (and (eq $a "prowlarr") (not $.Values.prowlarr.enabled)) }}
+            {{- if not (and (eq $a "audiobookshelf") (not $.Values.audiobookshelf.enabled)) }}
             - name: {{ $a }}-config
               persistentVolumeClaim:
                 claimName: {{ $a }}-config
                 readOnly: true
             {{- end }}
             {{- end }}
+            {{- end }}
+
 {{- end }}

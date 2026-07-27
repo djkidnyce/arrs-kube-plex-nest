@@ -553,7 +553,7 @@ if "${HELM_CMD[@]}"; then
           existing=$(kubectl exec "deploy/$app" -n "$NAMESPACE" -- \
             curl -s -H "X-Api-Key: $AKEY" \
             "http://localhost:${aport}/api/${apiver}/downloadclient" 2>/dev/null || echo "")
-          if echo "$existing" | grep -q '"host"[[:space:]]*:[[:space:]]*"sabnzbd"'; then
+          if echo "$existing" | grep -q '"implementation"[[:space:]]*:[[:space:]]*"Sabnzbd"'; then
             info "  ${app}: SABnzbd already configured — leaving as is."
             continue
           fi

@@ -117,6 +117,11 @@
     plex-{{ $i }}.plex-headless.{{ $.Release.Namespace }}.svc.cluster.local
 {{- end }}
 
+{{- if .Values.audiobookshelf.enabled }}
+  AudiobookShelf: add libraries in the UI at {{ .Values.audiobookshelf.audiobooksPath }}
+  and {{ .Values.audiobookshelf.podcastsPath }} (the media share is mounted at /mnt/media).
+{{- end }}
+
   Other internal service names (namespace {{ .Release.Namespace }}):
     sonarr:{{ .Values.sonarr.port }}  radarr:{{ .Values.radarr.port }}  lidarr:{{ .Values.lidarr.port }}  tautulli:{{ .Values.tautulli.port }}  seerr:{{ .Values.seerr.port }}
 {{- if .Values.prowlarr.enabled }}  prowlarr:{{ .Values.prowlarr.port }}{{ end }}

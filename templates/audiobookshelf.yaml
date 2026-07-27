@@ -1,0 +1,142 @@
+{{- if .Values.audiobookshelf.enabled }}
+# ─────────────────────────────────────────────────────────────────────────────
+# AudiobookShelf — audiobook + podcast server (official advplyr image).
+# Stores its SQLite database at /config and covers/metadata at /metadata.
+# Audiobook and podcast libraries come from the media share.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audiobookshelf
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: audiobookshelf
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: audiobookshelf
+  template:
+    metadata:
+      labels:
+        app: audiobookshelf
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+        fsGroup: 1000
+      containers:
+        - name: audiobookshelf
+          image: {{ .Values.audiobookshelf.image }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: {{ .Values.audiobookshelf.port }}
+          env:
+            - name: PORT
+              value: {{ .Values.audiobookshelf.port | quote }}
+            - name: TZ
+              valueFrom:
+                configMapKeyRef:
+                  name: media-env
+                  key: TZ
+          resources:
+            {{- toYaml .Values.audiobookshelf.resources | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: /healthcheck
+              port: {{ .Values.audiobookshelf.port }}
+            failureThreshold: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthcheck
+              port: {{ .Values.audiobookshelf.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthcheck
+              port: {{ .Values.audiobookshelf.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: metadata
+              mountPath: /metadata
+            # Whole share mounted like the other apps. Point AudiobookShelf's
+            # libraries at {{ .Values.audiobookshelf.audiobooksPath }} and
+            # {{ .Values.audiobookshelf.podcastsPath }} in the web UI.
+            - name: media
+              mountPath: /mnt/media
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: audiobookshelf-config
+        - name: metadata
+          persistentVolumeClaim:
+            claimName: audiobookshelf-metadata
+        - name: media
+          persistentVolumeClaim:
+            claimName: media-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: audiobookshelf-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.audiobookshelf.configStorageSize }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: audiobookshelf-metadata
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.audiobookshelf.metadataStorageSize }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: audiobookshelf
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: audiobookshelf
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  type: {{ include "akpn.serviceType" (dict "svc" "audiobookshelf" "root" $) }}
+  selector:
+    app: audiobookshelf
+  ports:
+    - name: http
+      port: {{ .Values.audiobookshelf.port }}
+      targetPort: {{ .Values.audiobookshelf.port }}
+{{- if and .Values.expose.audiobookshelf (eq .Values.expose.mode "nodePort") }}
+      nodePort: {{ .Values.expose.nodePorts.audiobookshelf }}
+{{- end }}
+{{- end }}

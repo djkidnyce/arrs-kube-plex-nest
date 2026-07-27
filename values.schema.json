@@ -300,6 +300,44 @@
           "type": "boolean"
         }
       }
+    },
+    "audiobookshelf": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "image": {
+          "type": "string",
+          "not": {
+            "pattern": ":latest$"
+          }
+        },
+        "port": {
+          "type": "integer"
+        }
+      }
+    },
+    "tautulli": {
+      "type": "object",
+      "properties": {}
+    },
+    "dispatcharr": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "image": {
+          "type": "string",
+          "not": {
+            "pattern": ":latest$"
+          }
+        },
+        "port": {
+          "type": "integer"
+        }
+      }
     }
   }
 }

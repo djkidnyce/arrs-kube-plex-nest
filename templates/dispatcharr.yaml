@@ -1,0 +1,126 @@
+{{- if .Values.dispatcharr.enabled }}
+# ─────────────────────────────────────────────────────────────────────────────
+# Dispatcharr — IPTV stream manager (all-in-one image).
+# PostgreSQL + Redis + Celery + web all run in the one container, persisting to
+# /data. Recreate strategy: single writer to the /data (Postgres) volume.
+#
+# Its data is PostgreSQL, so it is NOT covered by the SQLite config-backup job.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dispatcharr
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: dispatcharr
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: dispatcharr
+  template:
+    metadata:
+      labels:
+        app: dispatcharr
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      automountServiceAccountToken: false
+      # The all-in-one image runs Postgres/Redis/Celery under its own init and
+      # manages users internally, so runAsNonRoot is not forced here. fsGroup
+      # gives it group ownership of the /data volume.
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+        fsGroup: 1000
+      containers:
+        - name: dispatcharr
+          image: {{ .Values.dispatcharr.image }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: {{ .Values.dispatcharr.port }}
+          env:
+            - name: DISPATCHARR_ENV
+              value: "aio"
+            - name: REDIS_HOST
+              value: "localhost"
+            - name: CELERY_BROKER_URL
+              value: "redis://localhost:6379/0"
+            - name: DISPATCHARR_LOG_LEVEL
+              value: {{ .Values.dispatcharr.logLevel | quote }}
+            - name: TZ
+              valueFrom:
+                configMapKeyRef:
+                  name: media-env
+                  key: TZ
+          resources:
+            {{- toYaml .Values.dispatcharr.resources | nindent 12 }}
+          # TCP probes: the app is behind an internal Postgres/Redis boot that
+          # can take a while, and there is no guaranteed unauthenticated HTTP
+          # health path. A generous startupProbe covers first-boot DB init.
+          startupProbe:
+            tcpSocket:
+              port: {{ .Values.dispatcharr.port }}
+            failureThreshold: 60
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.dispatcharr.port }}
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.dispatcharr.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: dispatcharr-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dispatcharr-data
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.dispatcharr.dataStorageSize }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dispatcharr
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: dispatcharr
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  type: {{ include "akpn.serviceType" (dict "svc" "dispatcharr" "root" $) }}
+  selector:
+    app: dispatcharr
+  ports:
+    - name: http
+      port: {{ .Values.dispatcharr.port }}
+      targetPort: {{ .Values.dispatcharr.port }}
+{{- if and .Values.expose.dispatcharr (eq .Values.expose.mode "nodePort") }}
+      nodePort: {{ .Values.expose.nodePorts.dispatcharr }}
+{{- end }}
+{{- end }}
