@@ -181,6 +181,17 @@ spec:
             # firewall.md — "needed for Kubernetes sidecars").
             - name: FIREWALL_INPUT_PORTS
               value: {{ .Values.sabnzbd.port | quote }}
+            # gluetun's built-in DNS server periodically re-downloads block
+            # lists from GitHub and restarts itself (DNS_UPDATE_PERIOD, default
+            # 24h). When that fetch times out through the tunnel it wedges
+            # resolution, which breaks SABnzbd's Usenet lookups. Deactivate the
+            # update cycle and skip block lists so DNS has no GitHub dependency;
+            # the DoT resolver to Cloudflare keeps working. Ref: gluetun-wiki
+            # setup/options/dns.md.
+            - name: DNS_UPDATE_PERIOD
+              value: "0"
+            - name: BLOCK_MALICIOUS
+              value: "off"
             - name: HTTP_CONTROL_SERVER_ADDRESS
               value: ":8000"
             - name: HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH
