@@ -40,10 +40,14 @@ spec:
         - name: dispatcharr
           image: {{ .Values.dispatcharr.image }}
           imagePullPolicy: IfNotPresent
+          # The all-in-one entrypoint runs as root and calls groupadd/useradd to
+          # create its service user, then drops to it. Writing /etc/gshadow and
+          # chowning /data needs this minimal capability set on top of drop ALL.
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
+              add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]
           ports:
             - containerPort: {{ .Values.dispatcharr.port }}
           env:
