@@ -440,15 +440,33 @@ you want tighter control.
 
 ### ClamAV
 
-Scans write a timestamped report to `clamav.reportDir` (default
-`/mnt/media/.clamav-reports`), readable from any SMB client, keeping the last
-`clamav.keepReports` files. Signature updates run on their own schedule via the
-`clamav-definitions` CronJob, so scans start with current definitions and you
-can refresh without a full scan:
+Two scans run on a schedule: a **daily quick scan** (2:30 AM) covering only
+files modified in the last 24 hours, and a **monthly full scan** (4:00 AM on the
+1st) that walks the entire library. Both write a timestamped report to
+`clamav.reportDir` (default `/mnt/media/.clamav-reports`), readable from any SMB
+client, keeping the last `clamav.keepReports` files.
+
+Note: the daily quick scan writes a report only when files matched its 24-hour
+window. On a quiet day it logs `No Files` and writes nothing, so an empty
+`.clamav-reports` usually just means no new files and no monthly run yet, not a
+failure. Confirm with `kubectl get jobs -n media -l app=clamav`.
+
+Run a scan on demand — a full scan writes a report immediately:
 
 ```bash
-kubectl create job --from=cronjob/clamav-definitions defs-now -n media
+# Full library scan (use this for an on-demand report)
+kubectl create job --from=cronjob/clamav-monthly clamav-scan-$(date +%s) -n media
+
+# Quick scan of just the last 24 hours
+kubectl create job --from=cronjob/clamav-daily clamav-quick-$(date +%s) -n media
+
+# Follow a running scan (use the name the create command printed)
+kubectl logs -f job/<name> -n media
 ```
+
+Signature updates run on their own `clamav-definitions` CronJob, so scans start
+with current definitions; refresh without scanning via
+`kubectl create job --from=cronjob/clamav-definitions defs-now -n media`.
 
 ## Operations
 
@@ -456,7 +474,8 @@ kubectl create job --from=cronjob/clamav-definitions defs-now -n media
 |------|---------|
 | Claim a Plex server | see `helm get notes akpn -n media` |
 | Rotate VPN interval | `kubectl edit configmap vpn-config -n media` |
-| Manual ClamAV scan | `kubectl create job --from=cronjob/clamav-daily manual-$(date +%s) -n media` |
+| ClamAV full scan (on demand) | `kubectl create job --from=cronjob/clamav-monthly scan-$(date +%s) -n media` |
+| ClamAV quick scan (last 24h) | `kubectl create job --from=cronjob/clamav-daily quick-$(date +%s) -n media` |
 | Reload `.ovpn` files | `./deploy.sh --ovpn-dir <dir>` then `kubectl rollout restart deployment/sabnzbd -n media` |
 | Web UIs (internal) | `kubectl port-forward svc/<sonarr|radarr|lidarr|sabnzbd|tautulli> <port>:<port> -n media` |
 
