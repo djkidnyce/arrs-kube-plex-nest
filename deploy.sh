@@ -564,13 +564,14 @@ if "${HELM_CMD[@]}"; then
       if [[ -z "$SAB_KEY" ]]; then
         warn "Could not read SABnzbd API key yet — skipping auto-wire. Re-run after SABnzbd finishes first start, or wire manually."
       else
-        for app in sonarr radarr lidarr; do
+        for app in sonarr radarr lidarr whisparr; do
           kubectl get deploy "$app" -n "$NAMESPACE" &>/dev/null || continue
           # Servarr API versions differ: Sonarr/Radarr are v3, Lidarr is v1.
           case "$app" in
-            sonarr) aport=8989; cat=tv;     apiver=v3 ;;
-            radarr) aport=7878; cat=movies; apiver=v3 ;;
-            lidarr) aport=8686; cat=music;  apiver=v1 ;;
+            sonarr)   aport=8989; cat=tv;     apiver=v3 ;;
+            radarr)   aport=7878; cat=movies; apiver=v3 ;;
+            lidarr)   aport=8686; cat=music;  apiver=v1 ;;
+            whisparr) aport=6969; cat=xxx;    apiver=v3 ;;
           esac
           # Wait until the app has written its API key (config.xml exists).
           AKEY=""

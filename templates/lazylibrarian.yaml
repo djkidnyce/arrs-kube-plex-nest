@@ -1,0 +1,98 @@
+{{- if .Values.lazylibrarian.enabled }}
+# ─────────────────────────────────────────────────────────────────────────────
+# LazyLibrarian — book / audiobook / magazine manager (linuxserver image).
+# SQLite config at /config, media on the shared share. Standalone: configure
+# indexers and the SABnzbd download client in its own UI (Prowlarr app-sync
+# does not support LazyLibrarian). No unauthenticated health path, so TCP probes.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lazylibrarian
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: lazylibrarian
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: lazylibrarian
+  template:
+    metadata:
+      labels:
+        app: lazylibrarian
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      automountServiceAccountToken: false
+      {{- include "akpn.podSecurityContext" . | nindent 6 }}
+      containers:
+        - name: lazylibrarian
+          image: {{ .Values.lazylibrarian.image }}
+          imagePullPolicy: IfNotPresent
+          {{- include "akpn.lsioContainerSecurity" . | nindent 10 }}
+          ports:
+            - containerPort: {{ .Values.lazylibrarian.port }}
+          env:
+            {{- include "akpn.globalEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.lazylibrarian.resources | nindent 12 }}
+          startupProbe:
+            tcpSocket:
+              port: {{ .Values.lazylibrarian.port }}
+            failureThreshold: 30
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.lazylibrarian.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.lazylibrarian.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          volumeMounts:
+            {{- include "akpn.mediaVolumeMounts" . | nindent 12 }}
+      volumes:
+        {{- include "akpn.mediaVolumes" (dict "configClaim" "lazylibrarian-config") | nindent 8 }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lazylibrarian-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.lazylibrarian.configStorageSize }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lazylibrarian
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: lazylibrarian
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  type: {{ include "akpn.serviceType" (dict "svc" "lazylibrarian" "root" $) }}
+  selector:
+    app: lazylibrarian
+  ports:
+    - name: http
+      port: {{ .Values.lazylibrarian.port }}
+      targetPort: {{ .Values.lazylibrarian.port }}
+{{- if and .Values.expose.lazylibrarian (eq .Values.expose.mode "nodePort") }}
+      nodePort: {{ .Values.expose.nodePorts.lazylibrarian }}
+{{- end }}
+{{- end }}

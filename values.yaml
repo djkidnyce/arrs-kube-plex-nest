@@ -36,6 +36,8 @@ expose:
   tautulli: false
   audiobookshelf: false
   dispatcharr: false
+  whisparr: false
+  lazylibrarian: false
 
   # Pinned nodePorts (valid range 30000-32767). Plex uses basePort+N directly
   # so its published port matches what Plex advertises.
@@ -49,6 +51,8 @@ expose:
     prowlarr: 30096
     audiobookshelf: 30378
     dispatcharr: 30191
+    whisparr: 30069
+    lazylibrarian: 30052
 
 # ── NAS / TrueNAS SMB share ───────────────────────────────────────────────────
 # REQUIRED: nas.host must be set at deploy time (render fails without it).
@@ -349,6 +353,8 @@ backup:
     - sabnzbd
     - prowlarr
     - audiobookshelf
+    - whisparr
+    - lazylibrarian
 
   resources:
     requests:
@@ -387,6 +393,38 @@ audiobookshelf:
   # Audiobook/podcast libraries under the media share.
   audiobooksPath: "/mnt/media/audiobooks"
   podcastsPath: "/mnt/media/podcasts"
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "128Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+
+# ── Whisparr (adult-content Servarr, v3) ──────────────────────────────────────
+# No official/linuxserver image exists; this pins the community hotio v3 build.
+# Behaves like the *arrs: SABnzbd is auto-wired by deploy.sh, Prowlarr via UI.
+whisparr:
+  enabled: false
+  image: "ghcr.io/hotio/whisparr:v3-3.0.0.400"
+  port: 6969
+  configStorageSize: "5Gi"          # SQLite database
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+
+# ── LazyLibrarian (book / audiobook / magazine manager) ───────────────────────
+# linuxserver image; upstream has no semver, so the tag is a pinned commit
+# build. Standalone: configure indexers + SABnzbd in its own web UI.
+lazylibrarian:
+  enabled: false
+  image: "lscr.io/linuxserver/lazylibrarian:version-89f640e8"
+  port: 5299
+  configStorageSize: "5Gi"          # SQLite database
   resources:
     requests:
       cpu: "50m"

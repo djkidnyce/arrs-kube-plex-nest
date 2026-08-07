@@ -54,7 +54,7 @@ spec:
 ---
 # 3. One ingress policy per exposed service. Without these, a NodePort or
 #    LoadBalancer publishes the port but default-deny silently drops traffic.
-{{- $ports := dict "sabnzbd" .Values.sabnzbd.port "sonarr" .Values.sonarr.port "radarr" .Values.radarr.port "lidarr" .Values.lidarr.port "tautulli" .Values.tautulli.port "prowlarr" .Values.prowlarr.port "audiobookshelf" .Values.audiobookshelf.port "dispatcharr" .Values.dispatcharr.port }}
+{{- $ports := dict "sabnzbd" .Values.sabnzbd.port "sonarr" .Values.sonarr.port "radarr" .Values.radarr.port "lidarr" .Values.lidarr.port "tautulli" .Values.tautulli.port "prowlarr" .Values.prowlarr.port "audiobookshelf" .Values.audiobookshelf.port "dispatcharr" .Values.dispatcharr.port "whisparr" .Values.whisparr.port "lazylibrarian" .Values.lazylibrarian.port }}
 {{- $ns := .Release.Namespace }}
 {{- $labels := include "akpn.labels" . }}
 {{- range $svc, $port := $ports }}
@@ -122,7 +122,7 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: ["sonarr", "radarr", "lidarr"]
+                values: ["sonarr", "radarr", "lidarr"{{ if .Values.whisparr.enabled }}, "whisparr"{{ end }}{{ if .Values.lazylibrarian.enabled }}, "lazylibrarian"{{ end }}]
       ports:
         - protocol: TCP
           port: {{ .Values.sabnzbd.port }}
@@ -141,7 +141,7 @@ spec:
     matchExpressions:
       - key: app
         operator: In
-        values: ["sonarr", "radarr", "lidarr"]
+        values: ["sonarr", "radarr", "lidarr"{{ if .Values.whisparr.enabled }}, "whisparr"{{ end }}]
   policyTypes:
     - Ingress
   ingress:
@@ -158,6 +158,10 @@ spec:
           port: {{ .Values.radarr.port }}
         - protocol: TCP
           port: {{ .Values.lidarr.port }}
+        {{- if .Values.whisparr.enabled }}
+        - protocol: TCP
+          port: {{ .Values.whisparr.port }}
+        {{- end }}
 
 {{- if .Values.dispatcharr.enabled }}
 ---

@@ -1,0 +1,82 @@
+{{- if .Values.whisparr.enabled }}
+# ─────────────────────────────────────────────────────────────────────────────
+# Whisparr — adult-content Servarr (v3). Same shape as the *arrs: SQLite config
+# at /config, media on the shared share, SABnzbd + Prowlarr wired like an *arr
+# (deploy.sh auto-wires the SABnzbd download client). No official image exists;
+# this pins the community hotio v3 build.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: whisparr
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: whisparr
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: whisparr
+  template:
+    metadata:
+      labels:
+        app: whisparr
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      automountServiceAccountToken: false
+      {{- include "akpn.podSecurityContext" . | nindent 6 }}
+      containers:
+        - name: whisparr
+          image: {{ .Values.whisparr.image }}
+          imagePullPolicy: IfNotPresent
+          {{- include "akpn.lsioContainerSecurity" . | nindent 10 }}
+          ports:
+            - containerPort: {{ .Values.whisparr.port }}
+          env:
+            {{- include "akpn.globalEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.whisparr.resources | nindent 12 }}
+          {{- include "akpn.httpProbes" (dict "port" .Values.whisparr.port "path" "/ping") | nindent 10 }}
+          volumeMounts:
+            {{- include "akpn.mediaVolumeMounts" . | nindent 12 }}
+      volumes:
+        {{- include "akpn.mediaVolumes" (dict "configClaim" "whisparr-config") | nindent 8 }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: whisparr-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.whisparr.configStorageSize }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: whisparr
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: whisparr
+    {{- include "akpn.labels" . | nindent 4 }}
+spec:
+  type: {{ include "akpn.serviceType" (dict "svc" "whisparr" "root" $) }}
+  selector:
+    app: whisparr
+  ports:
+    - name: http
+      port: {{ .Values.whisparr.port }}
+      targetPort: {{ .Values.whisparr.port }}
+{{- if and .Values.expose.whisparr (eq .Values.expose.mode "nodePort") }}
+      nodePort: {{ .Values.expose.nodePorts.whisparr }}
+{{- end }}
+{{- end }}

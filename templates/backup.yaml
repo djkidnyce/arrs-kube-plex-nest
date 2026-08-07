@@ -64,7 +64,7 @@ spec:
                 - name: KEEP_BACKUPS
                   value: {{ .Values.backup.keep | quote }}
                 - name: APPS
-                  value: "{{- range $a := .Values.backup.apps }}{{- if not (and (eq $a "prowlarr") (not $.Values.prowlarr.enabled)) }}{{- if not (and (eq $a "audiobookshelf") (not $.Values.audiobookshelf.enabled)) }} {{ $a }}{{ end }}{{- end }}{{- end }}"
+                  value: "{{- range $a := .Values.backup.apps }}{{- if not (and (eq $a "prowlarr") (not $.Values.prowlarr.enabled)) }}{{- if not (and (eq $a "audiobookshelf") (not $.Values.audiobookshelf.enabled)) }}{{- if not (and (eq $a "whisparr") (not $.Values.whisparr.enabled)) }}{{- if not (and (eq $a "lazylibrarian") (not $.Values.lazylibrarian.enabled)) }} {{ $a }}{{ end }}{{- end }}{{- end }}{{- end }}{{- end }}"
                 - name: NOTIFY_ON_SUCCESS
                   value: {{ .Values.backup.notifyOnSuccess | quote }}
                 # Payload format only; the webhook URL comes from the
@@ -89,9 +89,13 @@ spec:
                 {{- range $a := .Values.backup.apps }}
                 {{- if not (and (eq $a "prowlarr") (not $.Values.prowlarr.enabled)) }}
                 {{- if not (and (eq $a "audiobookshelf") (not $.Values.audiobookshelf.enabled)) }}
+                {{- if not (and (eq $a "whisparr") (not $.Values.whisparr.enabled)) }}
+                {{- if not (and (eq $a "lazylibrarian") (not $.Values.lazylibrarian.enabled)) }}
                 - name: {{ $a }}-config
                   mountPath: /configs/{{ $a }}
                   readOnly: true
+                {{- end }}
+                {{- end }}
                 {{- end }}
                 {{- end }}
                 {{- end }}
@@ -113,10 +117,14 @@ spec:
             {{- range $a := .Values.backup.apps }}
             {{- if not (and (eq $a "prowlarr") (not $.Values.prowlarr.enabled)) }}
             {{- if not (and (eq $a "audiobookshelf") (not $.Values.audiobookshelf.enabled)) }}
+            {{- if not (and (eq $a "whisparr") (not $.Values.whisparr.enabled)) }}
+            {{- if not (and (eq $a "lazylibrarian") (not $.Values.lazylibrarian.enabled)) }}
             - name: {{ $a }}-config
               persistentVolumeClaim:
                 claimName: {{ $a }}-config
                 readOnly: true
+            {{- end }}
+            {{- end }}
             {{- end }}
             {{- end }}
             {{- end }}
