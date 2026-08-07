@@ -275,7 +275,7 @@ lidarr:
 # Prowlarr — centralized indexer management; syncs indexers to the *arrs.
 prowlarr:
   enabled: true
-  image: "lscr.io/linuxserver/prowlarr:2.4.0.5397-ls154"
+  image: "lscr.io/linuxserver/prowlarr:2.5.2.5491-ls156"
   port: 9696
   configStorageSize: "2Gi"
   resources:
@@ -380,7 +380,7 @@ dispatcharr:
 # ── AudiobookShelf ────────────────────────────────────────────────────────────
 audiobookshelf:
   enabled: false
-  image: "ghcr.io/advplyr/audiobookshelf:2.35.1"
+  image: "ghcr.io/advplyr/audiobookshelf:2.36.0"
   port: 13378
   configStorageSize: "5Gi"          # SQLite database
   metadataStorageSize: "10Gi"       # covers, author images, backups
