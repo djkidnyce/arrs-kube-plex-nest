@@ -261,7 +261,7 @@ radarr:
       memory: "1Gi"
 
 lidarr:
-  image: "lscr.io/linuxserver/lidarr:3.1.0.4875-ls34"
+  image: "lscr.io/linuxserver/lidarr:3.1.0.4875-ls35"
   port: 8686
   configStorageSize: "5Gi"
   resources:
