@@ -58,7 +58,7 @@ echo " Start: $(date)"
 echo "=============================="
 echo ""
 echo "[freshclam] Updating definitions..."
-FRESH_LOG=$(freshclam --datadir="$DB_PATH" 2>&1); FRESH_RC=$?
+FRESH_LOG=$(freshclam --datadir="$DB_PATH" --log=/tmp/freshclam.log 2>&1); FRESH_RC=$?
 printf '%s\n' "$FRESH_LOG" | grep -v "^$" | tail -10
 if [ "$FRESH_RC" -ne 0 ]; then echo "[freshclam] WARNING: update failed (exit $FRESH_RC) — using existing defs."; fi
 
@@ -66,11 +66,19 @@ echo ""
 # Build prune arguments from EXCLUDE_DIRS (colon-separated). These are paths
 # under the share that should never be scanned: config backups, scan reports,
 # and the incomplete/working download dir (partial files being written).
+# NOTE: build "-path A -o -path B" with -o BETWEEN paths only, then wrap the
+# group in \( \). The clamav image is Alpine/BusyBox, whose find rejects
+# GNU-only predicates. An earlier version appended a GNU list terminator here,
+# which BusyBox find could not parse, so it errored and scanned zero files.
 set --
 OLDIFS=$IFS; IFS=:
 for d in ${EXCLUDE_DIRS:-}; do
   [ -n "$d" ] || continue
-  set -- "$@" -path "$d" -o
+  if [ "$#" -eq 0 ]; then
+    set -- -path "$d"
+  else
+    set -- "$@" -o -path "$d"
+  fi
 done
 IFS=$OLDIFS
 
@@ -84,7 +92,7 @@ fi
 
 if [ "$#" -gt 0 ]; then
   # shellcheck disable=SC2086
-  find "$SCAN_DIR" \( "$@" -false \) -prune -o $MTIME -type f -print 2>/dev/null > /tmp/scan-list.txt
+  find "$SCAN_DIR" \( "$@" \) -prune -o $MTIME -type f -print 2>/dev/null > /tmp/scan-list.txt
 else
   # shellcheck disable=SC2086
   find "$SCAN_DIR" $MTIME -type f -print 2>/dev/null > /tmp/scan-list.txt

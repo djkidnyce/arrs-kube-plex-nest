@@ -53,6 +53,11 @@ jobs:
       - name: sab-seed script tests
         run: sh tests/test_sab_seed.sh
 
+      - name: clamav scan find tests
+        run: |
+          sudo apt-get install -y busybox
+          sh tests/test_scan_find.sh
+
       - name: offline cross-reference tests
         run: |
           pip install pyyaml kubernetes-validate
