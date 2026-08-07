@@ -47,6 +47,40 @@ success() { echo -e "${GREEN}[ok]${RESET}    $*"; }
 warn()    { echo -e "${YELLOW}[warn]${RESET}  $*"; }
 error()   { echo -e "${RED}[error]${RESET} $*" >&2; }
 fatal()   { error "$*"; exit 1; }
+
+# Print a table of externally reachable services (node IP + nodePort) plus the
+# in-cluster FQDN:port, and write a gitignored Markdown copy for documentation.
+print_service_endpoints() {
+  local node_ip md jp
+  node_ip=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null)
+  if [ -z "$node_ip" ]; then
+    warn "Could not determine node IP; skipping endpoint table."
+    return 0
+  fi
+  jp='{range .items[?(@.spec.type=="NodePort")]}{.metadata.namespace}{"/"}{.metadata.name}{"\t"}{.metadata.name}{"."}{.metadata.namespace}{".svc.cluster.local"}{"\t"}{range .spec.ports[*]}{.port}{":"}{.nodePort}{" "}{end}{"\n"}{end}'
+  md="service-endpoints.local.md"
+
+  {
+    printf 'SERVICE\tFQDN:PORT\tNODEPORT URL\n'
+    kubectl get svc -n "$NAMESPACE" -o jsonpath="$jp" \
+    | while IFS=$'\t' read -r svc fqdn pairs; do
+        for pair in $pairs; do
+          printf '%s\t%s:%s\thttp://%s:%s\n' "$svc" "$fqdn" "${pair%%:*}" "$node_ip" "${pair##*:}"
+        done
+      done
+  } | column -t -s "$(printf '\t')"
+
+  {
+    printf '| Service | FQDN:Port | NodePort URL |\n|---|---|---|\n'
+    kubectl get svc -n "$NAMESPACE" -o jsonpath="$jp" \
+    | while IFS=$'\t' read -r svc fqdn pairs; do
+        for pair in $pairs; do
+          printf '| %s | `%s:%s` | [http://%s:%s](http://%s:%s) |\n' \
+            "$svc" "$fqdn" "${pair%%:*}" "$node_ip" "${pair##*:}" "$node_ip" "${pair##*:}"
+        done
+      done
+  } > "$md" 2>/dev/null && info "Documented endpoints to $md (gitignored)."
+}
 banner()  { echo -e "\n${BOLD}${CYAN}━━━  $*  ━━━${RESET}\n"; }
 
 # ── Config cache ──────────────────────────────────────────────────────────────
@@ -576,6 +610,9 @@ JSON
       fi
     fi
 
+    echo
+    echo -e "  ${BOLD}Service endpoints (NodePort):${RESET}"
+    print_service_endpoints
     echo
     echo -e "  ${BOLD}Next steps:${RESET}"
     echo "  1. Watch pods settle:"
