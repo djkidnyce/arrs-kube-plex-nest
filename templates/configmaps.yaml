@@ -124,3 +124,22 @@ data:
   backup.py: |
 {{ .Files.Get "files/scripts/backup.py" | indent 4 }}
 {{- end }}
+{{- if .Values.vpn.tunnelMssClamp }}
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# ConfigMap: gluetun-post-rules — custom iptables applied after gluetun's own
+# firewall (gluetun reads /iptables/post-rules.txt, one command per line).
+# Clamps TCP MSS on tun0 so TLS handshakes survive the 1500>1450 MTU drop.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gluetun-post-rules
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "akpn.labels" . | nindent 4 }}
+data:
+  post-rules.txt: |
+    iptables -t mangle -A POSTROUTING -o tun0 -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss {{ .Values.vpn.tunnelMssClamp }}
+{{- end }}
+

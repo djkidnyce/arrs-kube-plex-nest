@@ -210,6 +210,13 @@ spec:
             - name: control-auth
               mountPath: /gluetun/auth
               readOnly: true
+            {{- if .Values.vpn.tunnelMssClamp }}
+            # Custom gluetun firewall rule: clamp tunnel MSS (see configmap).
+            - name: gluetun-post-rules
+              mountPath: /iptables/post-rules.txt
+              subPath: post-rules.txt
+              readOnly: true
+            {{- end }}
             - name: tun-device
               mountPath: /dev/net/tun
 
@@ -320,6 +327,11 @@ spec:
               - key: config.toml
                 path: config.toml
                 mode: 0440
+        {{- if .Values.vpn.tunnelMssClamp }}
+        - name: gluetun-post-rules
+          configMap:
+            name: gluetun-post-rules
+        {{- end }}
         - name: tun-device
           hostPath:
             path: /dev/net/tun

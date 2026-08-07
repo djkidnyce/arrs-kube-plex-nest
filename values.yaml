@@ -112,6 +112,14 @@ plex:
 vpn:
   image: "ghcr.io/qdm12/gluetun:v3.41.1"
 
+  # TCP MSS clamp for the OpenVPN tunnel. gluetun brings tun0 up at MTU 1500,
+  # but on Calico VXLAN the pod interface is 1450, so after OpenVPN overhead
+  # large TLS packets get dropped and handshakes hang (seen as SABnzbd Usenet
+  # "handshake operation timed out" on 563). Clamping MSS on tun0 forces
+  # segments small enough to survive. 0 disables. 1300 fits a 1450 pod MTU
+  # with headroom (1450 minus ~60 OpenVPN overhead minus 40 IP/TCP).
+  tunnelMssClamp: 1300
+
   # mode: native | custom
   #
   # native (recommended): gluetun selects servers from its own built-in list
