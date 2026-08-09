@@ -97,6 +97,8 @@ kind: PersistentVolumeClaim
 metadata:
   name: audiobookshelf-config
   namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/resource-policy: keep
   labels:
     {{- include "akpn.labels" . | nindent 4 }}
 spec:
@@ -111,6 +113,8 @@ kind: PersistentVolumeClaim
 metadata:
   name: audiobookshelf-metadata
   namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/resource-policy: keep
   labels:
     {{- include "akpn.labels" . | nindent 4 }}
 spec:

@@ -12,6 +12,8 @@ kind: PersistentVolumeClaim
 metadata:
   name: sabnzbd-config
   namespace: {{ $ns }}
+  annotations:
+    helm.sh/resource-policy: keep
   labels:
     {{- $labels | nindent 4 }}
 spec:
@@ -27,6 +29,8 @@ kind: PersistentVolumeClaim
 metadata:
   name: sonarr-config
   namespace: {{ $ns }}
+  annotations:
+    helm.sh/resource-policy: keep
   labels:
     {{- $labels | nindent 4 }}
 spec:
@@ -43,6 +47,8 @@ kind: PersistentVolumeClaim
 metadata:
   name: radarr-config
   namespace: {{ $ns }}
+  annotations:
+    helm.sh/resource-policy: keep
   labels:
     {{- $labels | nindent 4 }}
 spec:
@@ -59,6 +65,8 @@ kind: PersistentVolumeClaim
 metadata:
   name: lidarr-config
   namespace: {{ $ns }}
+  annotations:
+    helm.sh/resource-policy: keep
   labels:
     {{- $labels | nindent 4 }}
 spec:
@@ -75,6 +83,8 @@ kind: PersistentVolumeClaim
 metadata:
   name: seerr-config
   namespace: {{ $ns }}
+  annotations:
+    helm.sh/resource-policy: keep
   labels:
     {{- $labels | nindent 4 }}
 spec:
@@ -91,6 +101,8 @@ kind: PersistentVolumeClaim
 metadata:
   name: tautulli-config
   namespace: {{ $ns }}
+  annotations:
+    helm.sh/resource-policy: keep
   labels:
     {{- $labels | nindent 4 }}
 spec:
@@ -109,6 +121,8 @@ kind: PersistentVolumeClaim
 metadata:
   name: prowlarr-config
   namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/resource-policy: keep
   labels:
     {{- include "akpn.labels" . | nindent 4 }}
 spec:
@@ -128,6 +142,8 @@ kind: PersistentVolumeClaim
 metadata:
   name: sabnzbd-downloads
   namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/resource-policy: keep
   labels:
     {{- include "akpn.labels" . | nindent 4 }}
 spec:
@@ -146,6 +162,8 @@ kind: PersistentVolumeClaim
 metadata:
   name: clamav-definitions
   namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/resource-policy: keep
   labels:
     {{- include "akpn.labels" . | nindent 4 }}
 spec:

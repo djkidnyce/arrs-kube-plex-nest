@@ -99,6 +99,8 @@ kind: PersistentVolumeClaim
 metadata:
   name: dispatcharr-data
   namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/resource-policy: keep
   labels:
     {{- include "akpn.labels" . | nindent 4 }}
 spec:
