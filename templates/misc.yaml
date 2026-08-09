@@ -3,6 +3,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Seerr (Overseerr/Jellyseerr successor) ──────────────────────────────────
+{{- if .Values.seerr.enabled }}
 # The native seerr image is rootless (runs as node, 1000:1000) and stores its
 # data at /app/config, not /config. It ignores PUID/PGID; the pod securityContext
 # sets the user instead. The seerr-config PVC keeps its files at the volume root,
@@ -90,9 +91,11 @@ spec:
         - name: config
           persistentVolumeClaim:
             claimName: seerr-config
+{{- end }}
 
 ---
 # ── Tautulli ────────────────────────────────────────────────────────────────
+{{- if .Values.tautulli.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -155,3 +158,4 @@ spec:
         - name: config
           persistentVolumeClaim:
             claimName: tautulli-config
+{{- end }}

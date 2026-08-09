@@ -62,7 +62,7 @@ print_service_endpoints() {
 
   {
     printf 'SERVICE\tFQDN:PORT\tNODEPORT URL\n'
-    kubectl get svc -n "$NAMESPACE" -o jsonpath="$jp" \
+    kubectl get svc -A -o jsonpath="$jp" \
     | while IFS=$'\t' read -r svc fqdn pairs; do
         for pair in $pairs; do
           printf '%s\t%s:%s\thttp://%s:%s\n' "$svc" "$fqdn" "${pair%%:*}" "$node_ip" "${pair##*:}"
@@ -72,7 +72,7 @@ print_service_endpoints() {
 
   {
     printf '| Service | FQDN:Port | NodePort URL |\n|---|---|---|\n'
-    kubectl get svc -n "$NAMESPACE" -o jsonpath="$jp" \
+    kubectl get svc -A -o jsonpath="$jp" \
     | while IFS=$'\t' read -r svc fqdn pairs; do
         for pair in $pairs; do
           printf '| %s | `%s:%s` | [http://%s:%s](http://%s:%s) |\n' \
@@ -80,6 +80,31 @@ print_service_endpoints() {
         done
       done
   } > "$md" 2>/dev/null && info "Documented endpoints to $md (gitignored)."
+}
+
+# Show what the cluster node(s) physically have — CPU cores and RAM — so app
+# selection can be matched to capacity and avoid overcommit bottlenecks.
+show_node_capacity() {
+  echo -e "  ${BOLD}Cluster node capacity${RESET}"
+  kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.capacity.cpu}{"\t"}{.status.allocatable.cpu}{"\t"}{.status.capacity.memory}{"\t"}{.status.allocatable.memory}{"\n"}{end}' 2>/dev/null \
+  | awk -F'\t' '{ c=$4; a=$5; sub(/Ki/,"",c); sub(/Ki/,"",a);
+      printf "    %s: CPU %s cores (alloc %s) | RAM %.1fGi (alloc %.1fGi)\n", $1,$2,$3, c/1048576, a/1048576 }' \
+  || warn "  Could not read node capacity."
+}
+
+# After deploy, show how much of the node is committed. Requests are what the
+# scheduler reserves; Limits over 100%% means the node is overcommitted and can
+# throttle or OOM under simultaneous load — the bottleneck signal to watch.
+show_node_allocated() {
+  echo -e "  ${BOLD}Node resource commitment (requests / limits)${RESET}"
+  local n
+  for n in $(kubectl get nodes -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+    echo "  ${n}:"
+    kubectl describe node "$n" 2>/dev/null \
+      | sed -n '/Allocated resources:/,/Events:/p' \
+      | grep -E '^[[:space:]]+(cpu|memory|Resource)' | sed 's/^/    /'
+  done
+  kubectl top nodes 2>/dev/null | sed 's/^/    /' || info "  (install metrics-server for live usage via kubectl top)"
 }
 banner()  { echo -e "\n${BOLD}${CYAN}━━━  $*  ━━━${RESET}\n"; }
 
@@ -300,6 +325,52 @@ echo "  Leave blank to disable scan alerts."
 confirm_or_prompt CLAMAV_WEBHOOK "Webhook URL" optional
 echo
 
+show_node_capacity
+echo
+
+# ── Application selection ─────────────────────────────────────────────────────
+# Plex and SABnzbd are always installed. Pick the rest in ONE prompt; the
+# selection is translated to --set <app>.enabled=... (overrides my-values).
+echo -e "  ${BOLD}Application selection${RESET}"
+APP_FLAGS=()
+ALL_APPS=(sonarr radarr lidarr prowlarr seerr tautulli whisparr lazylibrarian audiobookshelf dispatcharr)
+DEFAULT_APPS=(sonarr radarr lidarr prowlarr seerr tautulli)
+if [[ -t 0 ]]; then
+  echo "  Plex and SABnzbd are always installed. Choose the rest:"
+  i=1; for a in "${ALL_APPS[@]}"; do printf "    %2d) %s\n" "$i" "$a"; i=$((i+1)); done
+  echo "  Enter numbers or names (space or comma separated), 'all', or 'none'."
+  read -rp "  Selection [Enter = ${DEFAULT_APPS[*]}]: " sel
+  sel="${sel//,/ }"
+  selected=()
+  if [[ -z "$sel" ]]; then
+    selected=("${DEFAULT_APPS[@]}")
+  elif [[ "$sel" == "all" ]]; then
+    selected=("${ALL_APPS[@]}")
+  elif [[ "$sel" == "none" ]]; then
+    selected=()
+  else
+    for tok in $sel; do
+      if [[ "$tok" =~ ^[0-9]+$ ]] && (( tok >= 1 && tok <= ${#ALL_APPS[@]} )); then
+        selected+=("${ALL_APPS[$((tok-1))]}")
+      else
+        for a in "${ALL_APPS[@]}"; do [[ "$a" == "$tok" ]] && selected+=("$a"); done
+      fi
+    done
+  fi
+  sel_str=" ${selected[*]-} "
+  for a in "${ALL_APPS[@]}"; do
+    if [[ "$sel_str" == *" $a "* ]]; then
+      APP_FLAGS+=(--set "${a}.enabled=true")
+    else
+      APP_FLAGS+=(--set "${a}.enabled=false")
+    fi
+  done
+  if [[ ${#selected[@]} -eq 0 ]]; then echo "  Selected: none (Plex + SABnzbd only)"; else echo "  Selected: ${selected[*]}"; fi
+else
+  info "Non-interactive shell — skipping app picker; using my-values.yaml / chart defaults."
+fi
+echo
+
 # Save non-sensitive values for next run
 save_cache
 
@@ -416,6 +487,7 @@ HELM_CMD=(
   --set "nas.mediaShare=${NAS_SHARE}"
   --set "nas.mediaShareSize=${NAS_SHARE_SIZE}"
   --set "plex.replicas=${PLEX_REPLICAS}"
+  "${APP_FLAGS[@]}"
   "${EXTRA_FLAGS[@]}"
 )
 
@@ -595,7 +667,7 @@ if "${HELM_CMD[@]}"; then
           body=$(cat <<JSON
 {"enable":true,"protocol":"usenet","priority":1,"name":"SABnzbd",
  "implementation":"Sabnzbd","configContract":"SabnzbdSettings",
- "fields":[{"name":"host","value":"sabnzbd"},{"name":"port","value":${SAB_PORT:-8080}},
+ "fields":[{"name":"host","value":"sabnzbd.${NAMESPACE}.svc.cluster.local"},{"name":"port","value":${SAB_PORT:-8080}},
  {"name":"apiKey","value":"${SAB_KEY}"},{"name":"category","value":"${cat}"},
  {"name":"useSsl","value":false}]}
 JSON
@@ -605,15 +677,71 @@ JSON
             "http://localhost:${aport}/api/${apiver}/downloadclient" -d "$body" -o /dev/null 2>/dev/null; then
             success "  ${app}: SABnzbd download client added."
           else
-            warn "  ${app}: could not add SABnzbd automatically — wire manually (host sabnzbd, port ${SAB_PORT:-8080}, SSL off)."
+            warn "  ${app}: could not add SABnzbd automatically — wire manually (host sabnzbd.${NAMESPACE}.svc.cluster.local, port ${SAB_PORT:-8080}, SSL off)."
           fi
         done
+      fi
+
+      # ── Prowlarr → *arrs application sync (over FQDN) ─────────────────────
+      if kubectl get deploy prowlarr -n "$NAMESPACE" &>/dev/null; then
+        PKEY=""
+        for _ in $(seq 1 30); do PKEY="$(arr_apikey prowlarr)"; [[ -n "$PKEY" ]] && break; sleep 5; done
+        if [[ -z "$PKEY" ]]; then
+          warn "  prowlarr: API key not ready — add apps manually in Prowlarr, Settings, Apps."
+        else
+          existing_apps=$(kubectl exec deploy/prowlarr -n "$NAMESPACE" -- \
+            curl -s -H "X-Api-Key: $PKEY" "http://localhost:9696/api/v1/applications" 2>/dev/null || echo "")
+          for app in sonarr radarr lidarr whisparr; do
+            kubectl get deploy "$app" -n "$NAMESPACE" &>/dev/null || continue
+            case "$app" in
+              sonarr)   aport=8989; impl=Sonarr;   cats='[5000,5010,5020,5030,5040,5045,5050]' ;;
+              radarr)   aport=7878; impl=Radarr;   cats='[2000,2010,2020,2030,2040,2045,2050,2060,2070,2080]' ;;
+              lidarr)   aport=8686; impl=Lidarr;   cats='[3000,3010,3030,3040]' ;;
+              whisparr) aport=6969; impl=Whisparr; cats='[6000,6010,6020,6030,6040,6045,6050,6060,6070]' ;;
+            esac
+            if echo "$existing_apps" | grep -q "\"implementation\"[[:space:]]*:[[:space:]]*\"${impl}\""; then
+              info "  prowlarr: ${app} already synced — leaving as is."; continue
+            fi
+            AKEY="$(arr_apikey "$app")"
+            [[ -z "$AKEY" ]] && { warn "  prowlarr: ${app} API key not ready — add manually."; continue; }
+            pbody=$(cat <<JSON
+{"name":"${impl}","syncLevel":"fullSync","implementation":"${impl}","configContract":"${impl}Settings",
+ "fields":[{"name":"prowlarrUrl","value":"http://prowlarr.${NAMESPACE}.svc.cluster.local:9696"},
+ {"name":"baseUrl","value":"http://${app}.${NAMESPACE}.svc.cluster.local:${aport}"},
+ {"name":"apiKey","value":"${AKEY}"},
+ {"name":"syncCategories","value":${cats}}]}
+JSON
+)
+            if kubectl exec deploy/prowlarr -n "$NAMESPACE" -- \
+              curl -sf -X POST -H "X-Api-Key: $PKEY" -H "Content-Type: application/json" \
+              "http://localhost:9696/api/v1/applications" -d "$pbody" -o /dev/null 2>/dev/null; then
+              success "  prowlarr: ${app} synced (FQDN)."
+            else
+              warn "  prowlarr: could not sync ${app} — add in Prowlarr, Settings, Apps (Server http://${app}.${NAMESPACE}.svc.cluster.local:${aport})."
+            fi
+          done
+        fi
+      fi
+
+      # ── Seerr + Tautulli need a one-time Plex sign-in in their web UI, which
+      #    cannot be scripted. Print the exact FQDN values to enter. ──────────
+      if kubectl get deploy seerr -n "$NAMESPACE" &>/dev/null; then
+        echo -e "  ${YELLOW}Finish Seerr in its web UI (one-time Plex sign-in), then add:${RESET}"
+        echo "    Sonarr: http://sonarr.${NAMESPACE}.svc.cluster.local:8989  (API key from Sonarr)"
+        echo "    Radarr: http://radarr.${NAMESPACE}.svc.cluster.local:7878  (API key from Radarr)"
+        echo "    Plex:   plex-0.plex-headless.${NAMESPACE}.svc.cluster.local  port 32400  SSL off"
+      fi
+      if kubectl get deploy tautulli -n "$NAMESPACE" &>/dev/null; then
+        echo -e "  ${YELLOW}Finish Tautulli in its web UI (one-time Plex sign-in):${RESET}"
+        echo "    Plex:   plex-0.plex-headless.${NAMESPACE}.svc.cluster.local  port 32400  SSL off"
       fi
     fi
 
     echo
     echo -e "  ${BOLD}Service endpoints (NodePort):${RESET}"
     print_service_endpoints
+    echo
+    show_node_allocated
     echo
     echo -e "  ${BOLD}Next steps:${RESET}"
     echo "  1. Watch pods settle:"

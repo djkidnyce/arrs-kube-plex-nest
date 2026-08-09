@@ -6,21 +6,11 @@
 {{- $ns := .Release.Namespace }}
 {{- $labels := include "akpn.labels" . }}
 
-{{- $configPVCs := list
-  (dict "name" "sabnzbd-config" "size" .Values.sabnzbd.configStorageSize)
-  (dict "name" "sonarr-config"  "size" .Values.sonarr.configStorageSize)
-  (dict "name" "radarr-config"  "size" .Values.radarr.configStorageSize)
-  (dict "name" "lidarr-config"  "size" .Values.lidarr.configStorageSize)
-  (dict "name" "seerr-config"   "size" .Values.seerr.configStorageSize)
-  (dict "name" "tautulli-config" "size" .Values.tautulli.configStorageSize)
-}}
-
-{{- range $configPVCs }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ .name }}
+  name: sabnzbd-config
   namespace: {{ $ns }}
   labels:
     {{- $labels | nindent 4 }}
@@ -29,7 +19,86 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: {{ .size }}
+      storage: {{ .Values.sabnzbd.configStorageSize }}
+{{- if .Values.sonarr.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sonarr-config
+  namespace: {{ $ns }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.sonarr.configStorageSize }}
+{{- end }}
+{{- if .Values.radarr.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: radarr-config
+  namespace: {{ $ns }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.radarr.configStorageSize }}
+{{- end }}
+{{- if .Values.lidarr.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lidarr-config
+  namespace: {{ $ns }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.lidarr.configStorageSize }}
+{{- end }}
+{{- if .Values.seerr.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: seerr-config
+  namespace: {{ $ns }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.seerr.configStorageSize }}
+{{- end }}
+{{- if .Values.tautulli.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tautulli-config
+  namespace: {{ $ns }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.tautulli.configStorageSize }}
 {{- end }}
 
 {{- if .Values.prowlarr.enabled }}

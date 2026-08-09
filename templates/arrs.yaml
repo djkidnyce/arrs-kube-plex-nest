@@ -4,6 +4,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Sonarr ──────────────────────────────────────────────────────────────────
+{{- if .Values.sonarr.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -44,9 +45,11 @@ spec:
             {{- include "akpn.mediaVolumeMounts" . | nindent 12 }}
       volumes:
         {{- include "akpn.mediaVolumes" (dict "configClaim" "sonarr-config") | nindent 8 }}
+{{- end }}
 
 ---
 # ── Radarr ──────────────────────────────────────────────────────────────────
+{{- if .Values.radarr.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -87,9 +90,11 @@ spec:
             {{- include "akpn.mediaVolumeMounts" . | nindent 12 }}
       volumes:
         {{- include "akpn.mediaVolumes" (dict "configClaim" "radarr-config") | nindent 8 }}
+{{- end }}
 
 ---
 # ── Lidarr ──────────────────────────────────────────────────────────────────
+{{- if .Values.lidarr.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -130,6 +135,7 @@ spec:
             {{- include "akpn.mediaVolumeMounts" . | nindent 12 }}
       volumes:
         {{- include "akpn.mediaVolumes" (dict "configClaim" "lidarr-config") | nindent 8 }}
+{{- end }}
 
 {{- if .Values.prowlarr.enabled }}
 ---
