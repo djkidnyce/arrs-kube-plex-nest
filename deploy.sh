@@ -328,49 +328,101 @@ echo
 show_node_capacity
 echo
 
+# ── Detect current release + deployed apps (upgrade-aware) ────────────────────
+RELEASE_EXISTS=false
+helm status "$RELEASE" -n "$NAMESPACE" &>/dev/null && RELEASE_EXISTS=true
+DEPLOYED=" $(kubectl get deploy,statefulset -n "$NAMESPACE" -o jsonpath='{range .items[*]}{.metadata.name}{" "}{end}' 2>/dev/null) "
+if $RELEASE_EXISTS; then
+  info "Existing release found — this run is an UPGRADE."
+  info "Currently deployed:${DEPLOYED}"
+else
+  info "No existing release — this is a FRESH install."
+fi
+
 # ── Application selection ─────────────────────────────────────────────────────
-# Plex and SABnzbd are always installed. Pick the rest in ONE prompt; the
-# selection is translated to --set <app>.enabled=... (overrides my-values).
+# whiptail checklist: ARROWS move, SPACE toggles, ENTER confirms. Already-deployed
+# apps are pre-checked, so an upgrade keeps them unless you change the selection.
 echo -e "  ${BOLD}Application selection${RESET}"
-APP_FLAGS=()
 ALL_APPS=(sonarr radarr lidarr prowlarr seerr tautulli whisparr lazylibrarian audiobookshelf dispatcharr)
 DEFAULT_APPS=(sonarr radarr lidarr prowlarr seerr tautulli)
-if [[ -t 0 ]]; then
-  echo "  Plex and SABnzbd are always installed. Choose the rest:"
-  i=1; for a in "${ALL_APPS[@]}"; do printf "    %2d) %s\n" "$i" "$a"; i=$((i+1)); done
-  echo "  Enter numbers or names (space or comma separated), 'all', or 'none'."
-  read -rp "  Selection [Enter = ${DEFAULT_APPS[*]}]: " sel
-  sel="${sel//,/ }"
-  selected=()
-  if [[ -z "$sel" ]]; then
-    selected=("${DEFAULT_APPS[@]}")
-  elif [[ "$sel" == "all" ]]; then
-    selected=("${ALL_APPS[@]}")
-  elif [[ "$sel" == "none" ]]; then
-    selected=()
+declare -A APP_LABEL=(
+  [sonarr]="Sonarr (TV)" [radarr]="Radarr (movies)" [lidarr]="Lidarr (music)"
+  [prowlarr]="Prowlarr (indexers)" [seerr]="Seerr (requests)" [tautulli]="Tautulli (Plex stats)"
+  [whisparr]="Whisparr (adult v3)" [lazylibrarian]="LazyLibrarian (books)"
+  [audiobookshelf]="AudiobookShelf" [dispatcharr]="Dispatcharr (IPTV)"
+)
+APP_FLAGS=(); SELECTED_APPS=(); WIRE_APPS=()
+
+_app_state() {  # ON if deployed, or a default on fresh install; else OFF
+  if [[ "$DEPLOYED" == *" $1 "* ]]; then echo ON
+  elif ! $RELEASE_EXISTS && printf '%s\n' "${DEFAULT_APPS[@]}" | grep -qx "$1"; then echo ON
+  else echo OFF; fi
+}
+
+if [[ -t 0 ]] && command -v whiptail >/dev/null 2>&1; then
+  _items=(); for a in "${ALL_APPS[@]}"; do _items+=("$a" "${APP_LABEL[$a]}" "$(_app_state "$a")"); done
+  if _res=$(whiptail --title "Applications to deploy" \
+      --checklist "SPACE toggles, ARROWS move, ENTER confirms. Plex and SABnzbd are always installed. Deployed apps are pre-checked." \
+      22 74 12 "${_items[@]}" 3>&1 1>&2 2>&3); then
+    _res=${_res//\"/}; read -ra SELECTED_APPS <<< "$_res"
   else
-    for tok in $sel; do
-      if [[ "$tok" =~ ^[0-9]+$ ]] && (( tok >= 1 && tok <= ${#ALL_APPS[@]} )); then
-        selected+=("${ALL_APPS[$((tok-1))]}")
-      else
-        for a in "${ALL_APPS[@]}"; do [[ "$a" == "$tok" ]] && selected+=("$a"); done
-      fi
+    warn "Selection cancelled — keeping currently deployed apps."
+    for a in "${ALL_APPS[@]}"; do [[ "$DEPLOYED" == *" $a "* ]] && SELECTED_APPS+=("$a"); done
+  fi
+elif [[ -t 0 ]]; then
+  echo "  (Install 'whiptail' for a spacebar checklist; using text entry.)"
+  i=1; for a in "${ALL_APPS[@]}"; do printf "    %2d) %-16s [%s]\n" "$i" "$a" "$(_app_state "$a")"; i=$((i+1)); done
+  read -rp "  Numbers/names to ENABLE (space or comma), 'all', 'none', Enter=keep pre-checked: " sel
+  sel="${sel//,/ }"
+  if [[ -z "$sel" ]]; then for a in "${ALL_APPS[@]}"; do [[ "$(_app_state "$a")" == ON ]] && SELECTED_APPS+=("$a"); done
+  elif [[ "$sel" == all ]]; then SELECTED_APPS=("${ALL_APPS[@]}")
+  elif [[ "$sel" == none ]]; then SELECTED_APPS=()
+  else for tok in $sel; do
+      if [[ "$tok" =~ ^[0-9]+$ ]] && (( tok>=1 && tok<=${#ALL_APPS[@]} )); then SELECTED_APPS+=("${ALL_APPS[$((tok-1))]}")
+      else for a in "${ALL_APPS[@]}"; do [[ "$a" == "$tok" ]] && SELECTED_APPS+=("$a"); done; fi
     done
   fi
-  sel_str=" ${selected[*]-} "
-  for a in "${ALL_APPS[@]}"; do
-    if [[ "$sel_str" == *" $a "* ]]; then
-      APP_FLAGS+=(--set "${a}.enabled=true")
-    else
-      APP_FLAGS+=(--set "${a}.enabled=false")
-    fi
-  done
-  if [[ ${#selected[@]} -eq 0 ]]; then echo "  Selected: none (Plex + SABnzbd only)"; else echo "  Selected: ${selected[*]}"; fi
 else
-  info "Non-interactive shell — skipping app picker; using my-values.yaml / chart defaults."
+  info "Non-interactive shell — using my-values.yaml / chart defaults for app selection."
+fi
+
+if [[ -t 0 ]]; then
+  _sel=" ${SELECTED_APPS[*]-} "
+  for a in "${ALL_APPS[@]}"; do
+    if [[ "$_sel" == *" $a "* ]]; then APP_FLAGS+=(--set "${a}.enabled=true"); else APP_FLAGS+=(--set "${a}.enabled=false"); fi
+  done
+  echo "  Enabled: ${SELECTED_APPS[*]:-none (Plex + SABnzbd only)}"
+
+  # ── Auto-configuration selection ────────────────────────────────────────────
+  # Existing config is NEVER touched unless you ask. Only newly added apps are
+  # pre-checked to wire (SABnzbd + Prowlarr, over FQDN); wiring is additive and
+  # never overwrites an already-configured client/indexer. Leave all unchecked to
+  # change nothing on a running, configured stack.
+  _cand=(); for a in sonarr radarr lidarr whisparr; do [[ "$_sel" == *" $a "* ]] && _cand+=("$a"); done
+  if [[ ${#_cand[@]} -gt 0 ]]; then
+    echo -e "  ${BOLD}Auto-configure connections${RESET}"
+    if command -v whiptail >/dev/null 2>&1; then
+      _items=(); for a in "${_cand[@]}"; do
+        if [[ "$DEPLOYED" == *" $a "* ]]; then _st=OFF; else _st=ON; fi
+        _items+=("$a" "${APP_LABEL[$a]}" "$_st")
+      done
+      if _res=$(whiptail --title "Auto-configure which apps?" \
+          --checklist "SPACE toggles. Checked = (re)wire SABnzbd + Prowlarr over FQDN. Existing apps are unchecked to protect their config; leave all unchecked to change nothing." \
+          20 76 10 "${_items[@]}" 3>&1 1>&2 2>&3); then
+        _res=${_res//\"/}; read -ra WIRE_APPS <<< "$_res"
+      fi
+    else
+      echo "  Existing config is left alone by default; new apps are wired."
+      i=1; for a in "${_cand[@]}"; do tag=""; [[ "$DEPLOYED" == *" $a "* ]] || tag=" (new)"; printf "    %d) %s%s\n" "$i" "$a" "$tag"; i=$((i+1)); done
+      read -rp "  Numbers to (re)wire, 'all', Enter=new apps only: " wsel
+      if [[ -z "$wsel" ]]; then for a in "${_cand[@]}"; do [[ "$DEPLOYED" == *" $a "* ]] || WIRE_APPS+=("$a"); done
+      elif [[ "$wsel" == all ]]; then WIRE_APPS=("${_cand[@]}")
+      else for t in ${wsel//,/ }; do [[ "$t" =~ ^[0-9]+$ ]] && (( t>=1 && t<=${#_cand[@]} )) && WIRE_APPS+=("${_cand[$((t-1))]}"); done; fi
+    fi
+  fi
+  echo "  Auto-configure: ${WIRE_APPS[*]:-none (existing config untouched)}"
 fi
 echo
-
 # Save non-sensitive values for next run
 save_cache
 
@@ -637,6 +689,7 @@ if "${HELM_CMD[@]}"; then
         warn "Could not read SABnzbd API key yet — skipping auto-wire. Re-run after SABnzbd finishes first start, or wire manually."
       else
         for app in sonarr radarr lidarr whisparr; do
+          [[ " ${WIRE_APPS[*]-} " == *" $app "* ]] || continue
           kubectl get deploy "$app" -n "$NAMESPACE" &>/dev/null || continue
           # Servarr API versions differ: Sonarr/Radarr are v3, Lidarr is v1.
           case "$app" in
@@ -692,6 +745,7 @@ JSON
           existing_apps=$(kubectl exec deploy/prowlarr -n "$NAMESPACE" -- \
             curl -s -H "X-Api-Key: $PKEY" "http://localhost:9696/api/v1/applications" 2>/dev/null || echo "")
           for app in sonarr radarr lidarr whisparr; do
+            [[ " ${WIRE_APPS[*]-} " == *" $app "* ]] || continue
             kubectl get deploy "$app" -n "$NAMESPACE" &>/dev/null || continue
             case "$app" in
               sonarr)   aport=8989; impl=Sonarr;   cats='[5000,5010,5020,5030,5040,5045,5050]' ;;
@@ -729,13 +783,13 @@ JSON
 
       # ── Seerr + Tautulli need a one-time Plex sign-in in their web UI, which
       #    cannot be scripted. Print the exact FQDN values to enter. ──────────
-      if kubectl get deploy seerr -n "$NAMESPACE" &>/dev/null; then
+      if [[ "$DEPLOYED" != *" seerr "* ]] && kubectl get deploy seerr -n "$NAMESPACE" &>/dev/null; then
         echo -e "  ${YELLOW}Finish Seerr in its web UI (one-time Plex sign-in), then add:${RESET}"
         echo "    Sonarr: http://sonarr.${NAMESPACE}.svc.cluster.local:8989  (API key from Sonarr)"
         echo "    Radarr: http://radarr.${NAMESPACE}.svc.cluster.local:7878  (API key from Radarr)"
         echo "    Plex:   plex-0.plex-headless.${NAMESPACE}.svc.cluster.local  port 32400  SSL off"
       fi
-      if kubectl get deploy tautulli -n "$NAMESPACE" &>/dev/null; then
+      if [[ "$DEPLOYED" != *" tautulli "* ]] && kubectl get deploy tautulli -n "$NAMESPACE" &>/dev/null; then
         echo -e "  ${YELLOW}Finish Tautulli in its web UI (one-time Plex sign-in):${RESET}"
         echo "    Plex:   plex-0.plex-headless.${NAMESPACE}.svc.cluster.local  port 32400  SSL off"
       fi
