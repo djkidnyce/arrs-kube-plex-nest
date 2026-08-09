@@ -712,12 +712,16 @@ JSON
  {"name":"syncCategories","value":${cats}}]}
 JSON
 )
-            if kubectl exec deploy/prowlarr -n "$NAMESPACE" -- \
-              curl -sf -X POST -H "X-Api-Key: $PKEY" -H "Content-Type: application/json" \
-              "http://localhost:9696/api/v1/applications" -d "$pbody" -o /dev/null 2>/dev/null; then
+            resp=$(kubectl exec deploy/prowlarr -n "$NAMESPACE" -- \
+              curl -s -w '\n%{http_code}' -X POST -H "X-Api-Key: $PKEY" -H "Content-Type: application/json" \
+              "http://localhost:9696/api/v1/applications" -d "$pbody" 2>/dev/null)
+            code="${resp##*$'\n'}"; rbody="${resp%$'\n'*}"
+            if [[ "$code" == 20* ]]; then
               success "  prowlarr: ${app} synced (FQDN)."
+            elif printf '%s' "$rbody" | grep -q "Should be unique"; then
+              info "  prowlarr: ${app} already synced — leaving as is."
             else
-              warn "  prowlarr: could not sync ${app} — add in Prowlarr, Settings, Apps (Server http://${app}.${NAMESPACE}.svc.cluster.local:${aport})."
+              warn "  prowlarr: could not sync ${app} (HTTP ${code:-?}) — add in Prowlarr, Settings, Apps (Server http://${app}.${NAMESPACE}.svc.cluster.local:${aport})."
             fi
           done
         fi
