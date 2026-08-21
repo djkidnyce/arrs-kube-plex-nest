@@ -116,7 +116,7 @@ plex:
 
 # ── VPN (gluetun sidecar in SABnzbd pod) ─────────────────────────────────────
 vpn:
-  image: "ghcr.io/qdm12/gluetun:v3.41.1"
+  image: "ghcr.io/qdm12/gluetun:v3.41.3"
 
   # TCP MSS clamp for the OpenVPN tunnel. gluetun brings tun0 up at MTU 1500,
   # but on Calico VXLAN the pod interface is 1450, so after OpenVPN overhead
