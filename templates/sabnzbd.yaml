@@ -192,17 +192,15 @@ spec:
               value: "0"
             - name: BLOCK_MALICIOUS
               value: "off"
-            # gluetun's healthcheck TCP-dials HEALTH_TARGET_ADDRESS (default
+            # gluetun's healthcheck TCP-dials HEALTH_TARGET_ADDRESSESES (default
             # cloudflare.com:443), which requires DNS. On a cold tunnel start DNS
             # is not ready yet, the lookup times out, and gluetun restarts the
             # VPN in a flap loop that breaks SABnzbd's name resolution. Dial a
             # raw IP so the check tests packet flow, not DNS, and widen the
             # initial window so it does not fire before the tunnel settles.
             # Ref: gluetun-wiki faq/healthcheck.md.
-            - name: HEALTH_TARGET_ADDRESS
+            - name: HEALTH_TARGET_ADDRESSES
               value: "1.1.1.1:443"
-            - name: HEALTH_VPN_DURATION_INITIAL
-              value: "30s"
             - name: HTTP_CONTROL_SERVER_ADDRESS
               value: ":8000"
             - name: HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH

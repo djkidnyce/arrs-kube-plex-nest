@@ -78,7 +78,7 @@ plex:
 vpn:
   mode: "native"              # native = gluetun's built-in provider support
   provider: "privado"         # mullvad, nordvpn, pia, ... see gluetun wiki
-  serverCountries: "United States"
+  serverCountries: "USA"
   # serverCities: ""
   # serverHostnames: ""
 

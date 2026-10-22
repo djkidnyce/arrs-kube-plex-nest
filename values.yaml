@@ -142,7 +142,7 @@ vpn:
   # native mode: gluetun provider id (privado, mullvad, nordvpn, pia, ...)
   provider: "privado"
   # Server filters — leave blank for no filter. Comma separated.
-  serverCountries: "United States"
+  serverCountries: "USA"
   serverCities: ""
   serverHostnames: ""
 
