@@ -79,7 +79,7 @@ nas:
 # each with its own config PVC and its own claim, all serving the same media
 # share. External ports: plex-0 → basePort, plex-1 → basePort+1, etc.
 plex:
-  image: "lscr.io/linuxserver/plex:1.43.3.10828-00f62d37d-ls314"
+  image: "lscr.io/linuxserver/plex:1.43.5.11029-6bf8af3f0-ls329"
   basePort: 32400
   replicas: 2
   configStorageSize: "10Gi"   # per-replica; plex-config-plex-0, plex-config-plex-1
@@ -244,7 +244,7 @@ autowire:
 # ── *arr stack ────────────────────────────────────────────────────────────────
 sonarr:
   enabled: true
-  image: "lscr.io/linuxserver/sonarr:4.0.19.2979-ls319"
+  image: "lscr.io/linuxserver/sonarr:4.0.20.3014-ls1"
   port: 8989
   configStorageSize: "5Gi"
   resources:
@@ -257,7 +257,7 @@ sonarr:
 
 radarr:
   enabled: true
-  image: "lscr.io/linuxserver/radarr:6.3.0.10514-ls311"
+  image: "lscr.io/linuxserver/radarr:6.4.4.10685-ls323"
   port: 7878
   configStorageSize: "5Gi"
   resources:
@@ -284,7 +284,7 @@ lidarr:
 # Prowlarr — centralized indexer management; syncs indexers to the *arrs.
 prowlarr:
   enabled: true
-  image: "lscr.io/linuxserver/prowlarr:2.5.2.5491-ls156"
+  image: "lscr.io/linuxserver/prowlarr:2.6.5.5623-ls165"
   port: 9696
   configStorageSize: "2Gi"
   resources:
