@@ -14,6 +14,8 @@ my-values.yaml
 *.local.yml
 .env
 .env.*
+*HANDOFF.md
+*AGENTS.md
 
 # ── Helm generated ────────────────────────────────────────────────────────────
 charts/
@@ -32,3 +34,5 @@ desktop.ini
 # ── Python ─────────────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
+HANDOFF.md
+AGENTS.md
