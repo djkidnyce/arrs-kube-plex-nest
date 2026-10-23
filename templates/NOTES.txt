@@ -139,9 +139,12 @@
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   Current interval: {{ .Values.vpn.rotationIntervalSeconds }}s
-  Change on-the-fly (no pod restart):
-    kubectl edit configmap vpn-config -n {{ .Release.Namespace }}
-    # set rotation-interval-seconds to new value, or "0" to disable
+  Change it (no pod restart; the rotator re-reads the value each loop):
+    Edit vpn.rotationIntervalSeconds in my-values.yaml, then:
+      helm upgrade {{ .Release.Name }} . -n {{ .Release.Namespace }} -f my-values.yaml
+    Set it to 0 to disable rotation.
+  Do NOT use "kubectl edit configmap vpn-config". That gives kubectl
+  co-ownership of the object and makes the next helm upgrade conflict.
   The gluetun control API requires an API key (gluetun-control-auth Secret);
   the rotator container receives it automatically.
 

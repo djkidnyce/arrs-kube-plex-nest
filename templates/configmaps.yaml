@@ -19,7 +19,7 @@ data:
 #
 # To change rotation frequency without restarting the pod:
 #   kubectl edit configmap vpn-config -n <namespace>
-#   Change rotation-interval-seconds (0 = disabled)
+#   Set via vpn.rotationIntervalSeconds in values (0 = disabled). Do not kubectl edit.
 #   The vpn-rotator container re-reads the file on every loop iteration.
 # ─────────────────────────────────────────────────────────────────────────────
 apiVersion: v1

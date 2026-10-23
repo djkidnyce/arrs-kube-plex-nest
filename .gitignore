@@ -36,3 +36,7 @@ __pycache__/
 *.pyc
 HANDOFF.md
 AGENTS.md
+my-values.yaml
+*.local.md
+privadon_VPN/
+*.ovpn

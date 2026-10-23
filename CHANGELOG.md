@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.5.0
+- Bump SABnzbd 5.1.3-ls278, Tautulli v2.18.2-ls249, Seerr v3.5.1, Dispatcharr 0.32.0
+- Drive VPN rotation interval through vpn.rotationIntervalSeconds; remove kubectl edit guidance that caused ConfigMap field-manager conflicts
+
 All notable changes to this Helm chart are documented here.
 
 ## [1.2.0] - 2026-07-27
