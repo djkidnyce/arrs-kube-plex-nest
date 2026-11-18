@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.5.1
+- Security: pin ClamAV to 1.5.4 (was the floating 1.5 tag), which fixes CVE-2026-20337, CVE-2026-20338, CVE-2026-20339, CVE-2026-20345, CVE-2026-20346 and CVE-2026-20347
+- Security relevant base images: curl 8.23.0, busybox 1.38.0, python 3.13.18-alpine (now pinned to the patch release)
+- Supply chain: every image is now pinned as tag@sha256 using the multi arch index digest, so a repointed tag can no longer change what runs
+- Radarr 7.0.3.10918-ls328 (major version, up from 6.4.4; database migration is forward only, back up first)
+- Bump Plex 1.43.5.11079-b3b13e506-ls332, Prowlarr 2.7.0.5723-ls168, Lidarr 3.1.6.5079-ls48, Tautulli v2.19.1-ls252, Seerr v3.5.2, Dispatcharr 0.33.0, AudiobookShelf 2.37.2, LazyLibrarian version-c7d6bc6b
+- Image rebuilds only: Sonarr 4.0.20.3014-ls5, SABnzbd 5.1.3-ls281
+- Held: Whisparr stays on v3-3.0.0.400, gluetun v3.41.3 is current
+
 ## v1.5.0
 - Bump SABnzbd 5.1.3-ls278, Tautulli v2.18.2-ls249, Seerr v3.5.1, Dispatcharr 0.32.0
 - Drive VPN rotation interval through vpn.rotationIntervalSeconds; remove kubectl edit guidance that caused ConfigMap field-manager conflicts
