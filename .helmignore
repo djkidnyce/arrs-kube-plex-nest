@@ -12,3 +12,6 @@ setup-guide.html
 .DS_Store
 my-values.yaml
 my-values.example.yaml
+# CI render output
+rendered.yaml
+rendered-alt.yaml

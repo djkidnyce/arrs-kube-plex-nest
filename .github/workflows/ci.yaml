@@ -8,26 +8,28 @@ jobs:
   lint-and-validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
         with:
           version: v3.16.4
 
       - name: helm lint
         run: helm lint . --set nas.host=192.168.1.100 --strict
 
+      # Rendered output is written inside the workspace, not /tmp: the
+      # kubeconform step runs in a container that only mounts the workspace.
       - name: helm template (default values)
         run: |
-          helm template akpn . --namespace media --set nas.host=192.168.1.100 > /tmp/rendered.yaml
-          echo "--- rendered $(grep -c '^kind:' /tmp/rendered.yaml) resources"
+          helm template akpn . --namespace media --set nas.host=192.168.1.100 > rendered.yaml
+          echo "--- rendered $(grep -c '^kind:' rendered.yaml) resources"
 
       - name: helm template (clamav disabled, 3 plex replicas)
         run: |
           helm template akpn . --namespace media \
             --set nas.host=192.168.1.100 \
             --set clamav.enabled=false \
-            --set plex.replicas=3 > /tmp/rendered-alt.yaml
+            --set plex.replicas=3 > rendered-alt.yaml
 
       - name: nas.host is required
         run: |
@@ -37,10 +39,10 @@ jobs:
           echo "OK: render fails without nas.host"
 
       - name: kubeconform
-        uses: docker://ghcr.io/yannh/kubeconform:latest-alpine
+        uses: docker://ghcr.io/yannh/kubeconform:v0.8.0-alpine@sha256:6b90a5f23d846140ce0194fe050b1995e546eba938f3a6bf10c039dd5e24588f
         with:
           entrypoint: /kubeconform
-          args: "-strict -summary /tmp/rendered.yaml"
+          args: "-strict -summary rendered.yaml rendered-alt.yaml"
 
       - name: shellcheck
         run: |
@@ -61,4 +63,4 @@ jobs:
       - name: offline cross-reference tests
         run: |
           pip install pyyaml kubernetes-validate
-          python3 tests/validate.py /tmp/rendered.yaml
+          python3 tests/validate.py rendered.yaml

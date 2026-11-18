@@ -40,3 +40,7 @@ my-values.yaml
 *.local.md
 privadon_VPN/
 *.ovpn
+
+# CI render output
+rendered.yaml
+rendered-alt.yaml
