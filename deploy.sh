@@ -110,6 +110,8 @@ banner()  { echo -e "\n${BOLD}${CYAN}━━━  $*  ━━━${RESET}\n"; }
 
 # ── Config cache ──────────────────────────────────────────────────────────────
 load_cache() {
+  # The cache path is chosen at runtime, so shellcheck cannot follow it.
+  # shellcheck source=/dev/null
   [[ -f "$CACHE_FILE" ]] && source "$CACHE_FILE" 2>/dev/null || true
 }
 
@@ -451,7 +453,7 @@ else
     info "vpn-credentials — keeping existing secret."
   else
     CRED_FILE="$(mktemp)"
-    trap "rm -f '$CRED_FILE'" EXIT
+    trap 'rm -f "$CRED_FILE"' EXIT
     printf '%s\n%s\n' "$VPN_USER" "$VPN_PASS" > "$CRED_FILE"
     # OPENVPN_USER/OPENVPN_PASSWORD are what gluetun's native providers read;
     # openvpn.cred is only used by custom (.ovpn) mode. Both are written so

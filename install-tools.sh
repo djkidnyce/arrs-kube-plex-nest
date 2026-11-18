@@ -259,7 +259,7 @@ if $do_install_helm; then
   tarball="helm-${target}-linux-${HELM_ARCH}.tar.gz"
   url="https://get.helm.sh/${tarball}"
   tmpdir=$(mktemp -d)
-  trap "rm -rf $tmpdir" EXIT
+  trap 'rm -rf "$tmpdir"' EXIT
   info "Installing helm $target ..."
   http_get_file "$url" "$tmpdir/$tarball"
   tar -xzf "$tmpdir/$tarball" -C "$tmpdir"
